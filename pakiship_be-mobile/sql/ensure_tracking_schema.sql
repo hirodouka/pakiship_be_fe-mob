@@ -1,0 +1,40 @@
+-- Ensure the parcel schema exists
+CREATE SCHEMA IF NOT EXISTS parcel;
+
+-- Add tracking columns to parcel.parcel_drafts
+ALTER TABLE IF EXISTS parcel.parcel_drafts 
+ADD COLUMN IF NOT EXISTS pickup_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS delivery_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS delivery_lng DOUBLE PRECISION;
+
+-- Add tracking columns to parcel.driver_sessions
+ALTER TABLE IF EXISTS parcel.driver_sessions
+ADD COLUMN IF NOT EXISTS last_latitude DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS last_longitude DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS last_located_at TIMESTAMPTZ;
+
+-- Also add to public schema just in case some logic still points there
+ALTER TABLE IF EXISTS public.parcel_drafts 
+ADD COLUMN IF NOT EXISTS pickup_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS delivery_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS delivery_lng DOUBLE PRECISION;
+
+ALTER TABLE IF EXISTS public.driver_sessions
+ADD COLUMN IF NOT EXISTS last_latitude DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS last_longitude DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS last_located_at TIMESTAMPTZ;
+
+-- Add tracking columns to parcel.driver_jobs
+ALTER TABLE IF EXISTS parcel.driver_jobs
+ADD COLUMN IF NOT EXISTS pickup_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS dropoff_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS dropoff_lng DOUBLE PRECISION;
+
+ALTER TABLE IF EXISTS public.driver_jobs
+ADD COLUMN IF NOT EXISTS pickup_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS pickup_lng DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS dropoff_lat DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS dropoff_lng DOUBLE PRECISION;
