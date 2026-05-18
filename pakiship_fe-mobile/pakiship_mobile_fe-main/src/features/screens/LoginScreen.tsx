@@ -11,6 +11,7 @@ import {
   Pressable,
   StyleSheet,
   Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -56,8 +57,18 @@ export default function LoginScreen({ onBackToLauncher }: LoginScreenProps) {
   const [rememberMe, setRememberMe] = useState(false);
   const [resetModalVisible, setResetModalVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
+  const [otpModalVisible, setOtpModalVisible] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpNewPassword, setOtpNewPassword] = useState('');
+  const [otpId, setOtpId] = useState('');
+  const [isSubmittingReset, setIsSubmittingReset] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [show2FAVerificationModal, setShow2FAVerificationModal] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [challengeToken, setChallengeToken] = useState('');
+  const [loginResultHolder, setLoginResultHolder] = useState<any>(null);
+  const [twoFactorError, setTwoFactorError] = useState('');
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
@@ -89,14 +100,32 @@ export default function LoginScreen({ onBackToLauncher }: LoginScreenProps) {
     try {
       setIsSubmitting(true);
       setLoginError('');
-      const result = await authApi.login({
+      const result: any = await authApi.login({
         emailOrMobile: trimmedEmail,
         password,
       });
 
-      setCurrentUser(result.user);
+      if (result.requiresTwoFactor) {
+        setChallengeToken(result.challengeToken);
+        setLoginResultHolder(result);
+        setShow2FAVerificationModal(true);
+        return;
+      }
 
-      const appRole = normalizeAppRole(result.user?.role);
+      completeLogin(result);
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : 'Unable to log in right now.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const completeLogin = (result: any) => {
+    setCurrentUser(result.user);
+
+    const appRole = normalizeAppRole(result.user?.role);
 
       if (appRole === 'driver') {
         navigation.reset({
@@ -118,10 +147,24 @@ export default function LoginScreen({ onBackToLauncher }: LoginScreenProps) {
         index: 0,
         routes: [{ name: 'Home' }],
       });
-    } catch (error) {
-      setLoginError(
-        error instanceof Error ? error.message : 'Unable to log in right now.',
-      );
+  };
+
+  const handleVerify2FA = async () => {
+    if (!twoFactorCode || twoFactorCode.length < 6) {
+      setTwoFactorError('Please enter a valid 6-digit code');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setTwoFactorError('');
+      const verifyResult = await authApi.verifyTwoFactor(challengeToken, twoFactorCode);
+      setShow2FAVerificationModal(false);
+      setTwoFactorCode('');
+      completeLogin(verifyResult);
+    } catch (error: any) {
+      setTwoFactorError(error.message || 'Invalid verification code. Please try again.');
+      setTwoFactorCode(''); // clear the input so they can type freshly
     } finally {
       setIsSubmitting(false);
     }
@@ -288,40 +331,240 @@ export default function LoginScreen({ onBackToLauncher }: LoginScreenProps) {
 
               <Text style={styles.modalTitle}>Reset Password</Text>
               <Text style={styles.modalSubtitle}>
-                Enter your details to receive a reset link.
+                Enter your Email or Mobile number to receive a verification code.
               </Text>
 
               <View style={styles.modalInput}>
                 <TextInput
                   style={styles.modalTextInput}
-                  placeholder="Email address"
+                  placeholder="Email or Mobile number"
                   placeholderTextColor={COLORS.primaryLight}
                   value={resetEmail}
                   onChangeText={setResetEmail}
                   autoCapitalize="none"
-                  textContentType="emailAddress"
-                  autoComplete="email"
                   autoCorrect={false}
                 />
               </View>
 
               <TouchableOpacity
-                style={styles.resetBtn}
+                style={[styles.resetBtn, isSubmittingReset && styles.continueBtnDisabled]}
                 onPress={async () => {
+                  if (!resetEmail.trim()) {
+                    setLoginError('Please enter your email or mobile number.');
+                    return;
+                  }
                   try {
-                    await authApi.forgotPassword({ email: resetEmail.trim() });
+                    setIsSubmittingReset(true);
+                    setLoginError('');
+                    const res = await authApi.forgotPassword({ emailOrMobile: resetEmail.trim() });
                     setResetModalVisible(false);
-                    setResetEmail('');
+                    
+                    setOtpId(res.otpId || '');
+                    setOtpCode('');
+                    setOtpNewPassword('');
+                    setOtpModalVisible(true);
                   } catch (error) {
                     setLoginError(
                       error instanceof Error
                         ? error.message
-                        : 'Unable to send reset link.',
+                        : 'Unable to request password reset.',
                     );
+                  } finally {
+                    setIsSubmittingReset(false);
                   }
                 }}
+                disabled={isSubmittingReset}
               >
-                <Text style={styles.resetBtnText}>Send Reset Link</Text>
+                <Text style={styles.resetBtnText}>
+                  {isSubmittingReset ? 'Requesting...' : 'Request Code'}
+                </Text>
+                <ArrowRight color={COLORS.white} size={18} strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* OTP Verification & Reset Password Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={otpModalVisible}
+        onRequestClose={() => setOtpModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.flex}
+        >
+          <View style={styles.modalOverlay}>
+            <Pressable
+              style={StyleSheet.absoluteFillObject}
+              onPress={() => setOtpModalVisible(false)}
+            />
+            <View style={styles.modalSheet}>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setOtpModalVisible(false)}
+              >
+                <X color={COLORS.gray300} size={24} strokeWidth={2} />
+              </TouchableOpacity>
+
+              <View style={styles.modalIconBox}>
+                <Lock color={COLORS.primary} size={26} strokeWidth={2.5} />
+              </View>
+
+              <Text style={styles.modalTitle}>Verification</Text>
+              <Text style={styles.modalSubtitle}>
+                Enter the 6-digit code sent to your account and choose a new password.
+              </Text>
+
+              {/* OTP Code Input */}
+              <View style={styles.modalInput}>
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="6-Digit Verification Code"
+                  placeholderTextColor={COLORS.primaryLight}
+                  value={otpCode}
+                  onChangeText={setOtpCode}
+                  keyboardType="numeric"
+                  maxLength={6}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              {/* New Password Input */}
+              <View style={[styles.modalInput, { marginTop: 16 }]}>
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="New Password"
+                  placeholderTextColor={COLORS.primaryLight}
+                  value={otpNewPassword}
+                  onChangeText={setOtpNewPassword}
+                  secureTextEntry={true}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.resetBtn, { marginTop: 24 }, isSubmittingReset && styles.continueBtnDisabled]}
+                onPress={async () => {
+                  if (otpCode.trim().length !== 6) {
+                    setLoginError('Verification code must be 6 digits.');
+                    return;
+                  }
+                  if (!otpNewPassword.trim()) {
+                    setLoginError('Please enter a new password.');
+                    return;
+                  }
+                  try {
+                    setIsSubmittingReset(true);
+                    setLoginError('');
+                    await authApi.resetPasswordWithOtp({
+                      emailOrMobile: resetEmail.trim(),
+                      code: otpCode.trim(),
+                      newPassword: otpNewPassword,
+                      otpId: otpId || undefined,
+                    });
+                    setOtpModalVisible(false);
+                    setResetEmail('');
+                    setOtpCode('');
+                    setOtpNewPassword('');
+                    
+                    Alert.alert(
+                      'Success',
+                      'Your password has been reset successfully. You can now log in with your new password.',
+                    );
+                  } catch (error) {
+                    setLoginError(
+                      error instanceof Error
+                        ? error.message
+                        : 'Invalid verification code or failed to reset password.',
+                    );
+                  } finally {
+                    setIsSubmittingReset(false);
+                  }
+                }}
+                disabled={isSubmittingReset}
+              >
+                <Text style={styles.resetBtnText}>
+                  {isSubmittingReset ? 'Verifying...' : 'Reset Password'}
+                </Text>
+                <ArrowRight color={COLORS.white} size={18} strokeWidth={3} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* 2FA Verification Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={show2FAVerificationModal}
+        onRequestClose={() => setShow2FAVerificationModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.flex}
+        >
+          <View style={styles.modalOverlay}>
+            <Pressable
+              style={StyleSheet.absoluteFillObject}
+              onPress={() => setShow2FAVerificationModal(false)}
+            />
+            <View style={styles.modalSheet}>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setShow2FAVerificationModal(false)}
+              >
+                <X color={COLORS.gray300} size={24} strokeWidth={2} />
+              </TouchableOpacity>
+
+              <View style={styles.modalIconBox}>
+                <CheckCircle2 color={COLORS.primary} size={26} strokeWidth={2.5} />
+              </View>
+
+              <Text style={styles.modalTitle}>Two-Factor Auth</Text>
+              <Text style={styles.modalSubtitle}>
+                Enter the 6-digit verification code from your Google Authenticator app.
+              </Text>
+
+              {twoFactorError ? (
+                <View style={[styles.errorBanner, { marginBottom: 18 }]}>
+                  <AlertCircle color={COLORS.error} size={14} strokeWidth={2.2} />
+                  <Text style={styles.errorText}>{twoFactorError}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.modalInput}>
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="000000"
+                  placeholderTextColor={COLORS.primaryLight}
+                  keyboardType="numeric"
+                  maxLength={6}
+                  value={twoFactorCode}
+                  onChangeText={(v) => {
+                    setTwoFactorCode(v);
+                    if (twoFactorError) setTwoFactorError('');
+                  }}
+                  autoFocus
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.resetBtn,
+                  { backgroundColor: twoFactorCode.length === 6 ? COLORS.primary : COLORS.primaryLight }
+                ]}
+                onPress={handleVerify2FA}
+                disabled={isSubmitting || twoFactorCode.length < 6}
+              >
+                <Text style={styles.resetBtnText}>
+                  {isSubmitting ? 'Verifying...' : 'Verify & Login'}
+                </Text>
                 <ArrowRight color={COLORS.white} size={18} strokeWidth={3} />
               </TouchableOpacity>
             </View>

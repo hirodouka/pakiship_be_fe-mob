@@ -38,4 +38,50 @@ export class SupabaseService {
       },
     });
   }
+
+  async logActivity(
+    userId: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    descriptionOrBuilder: string | ((fullName: string) => string),
+    severity: 'info' | 'warning' | 'error' = 'info',
+  ) {
+    try {
+      const admin = this.createAdminClient();
+      
+      // Fetch user profile to get full_name
+      let fullName = "User";
+      const { data: profile } = await admin
+        .schema("account")
+        .from("profiles")
+        .select("full_name, first_name, last_name")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (profile) {
+        fullName = profile.full_name || `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "User";
+      }
+
+      const description = typeof descriptionOrBuilder === 'function' 
+        ? descriptionOrBuilder(fullName) 
+        : descriptionOrBuilder;
+
+      await admin
+        .schema("partner")
+        .from("activity_logs")
+        .insert({
+          userId,
+          action,
+          entityType,
+          entityId,
+          description,
+          severity,
+        });
+
+      console.log(`[ActivityLog] Successfully logged action: ${action} for user: ${fullName}`);
+    } catch (e) {
+      console.error('[SupabaseService.logActivity] Failed:', e);
+    }
+  }
 }

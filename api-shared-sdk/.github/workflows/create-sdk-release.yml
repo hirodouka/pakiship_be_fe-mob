@@ -1,0 +1,167 @@
+name: Create SDK Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'SDK version to release. Leave blank to use package.json.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Validate only; do not create or push the tag.'
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: create-sdk-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  create-tag:
+    name: Validate and tag SDK version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node for GitHub Packages
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          scope: '@implementsprint'
+          registry-url: https://npm.pkg.github.com
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          REQUESTED_VERSION="${{ inputs.version }}"
+          RELEASE_VERSION="${REQUESTED_VERSION:-$CURRENT_VERSION}"
+
+          if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be plain semver: X.Y.Z."
+            exit 1
+          fi
+
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "package_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Apply requested version
+        if: ${{ steps.version.outputs.current_version != steps.version.outputs.package_version }}
+        shell: bash
+        run: |
+          RELEASE_VERSION="${{ steps.version.outputs.package_version }}"
+          npm version "$RELEASE_VERSION" --no-git-tag-version
+          node <<'NODE'
+          const fs = require('node:fs');
+          const packageJson = require('./package.json');
+          const file = 'src/TribeClient.ts';
+          const source = fs.readFileSync(file, 'utf8');
+          const next = source.replace(
+            /static readonly SDK_VERSION = '[^']+';/,
+            `static readonly SDK_VERSION = '${packageJson.version}';`,
+          );
+          if (next === source) {
+            console.error('Could not update TribeClient.SDK_VERSION.');
+            process.exit(1);
+          }
+          fs.writeFileSync(file, next);
+          NODE
+
+      - name: Guard unpublished version
+        shell: bash
+        run: |
+          PACKAGE_NAME="${{ steps.version.outputs.package_name }}"
+          PACKAGE_VERSION="${{ steps.version.outputs.package_version }}"
+
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://npm.pkg.github.com >/tmp/package-version.txt 2>/dev/null; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already published."
+            exit 1
+          fi
+
+          echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published yet."
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Guard missing or reused tag
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Local tag $TAG already exists."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Remote tag $TAG already exists."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release version
+        run: npm run verify:release -- "${{ steps.version.outputs.tag }}"
+
+      - name: Validate SDK package
+        run: npm run ci
+
+      - name: Commit release version
+        if: ${{ !inputs.dry_run && steps.version.outputs.current_version != steps.version.outputs.package_version }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.package_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src/TribeClient.ts
+          git commit -m "chore: release sdk v$VERSION"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Create and push release tag
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Publish package
+        if: ${{ !inputs.dry_run }}
+        run: npm publish --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release tag summary
+        shell: bash
+        run: |
+          {
+            echo "## SDK release tag"
+            echo ""
+            echo "- Package: \`${{ steps.version.outputs.package_name }}\`"
+            echo "- Version: \`${{ steps.version.outputs.package_version }}\`"
+            echo "- Tag: \`${{ steps.version.outputs.tag }}\`"
+            echo "- Dry run: \`${{ inputs.dry_run }}\`"
+            echo ""
+            echo "If a new version was requested, this workflow committed the package metadata before tagging."
+            echo "This workflow publishes the package directly after pushing the tag."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -56,6 +56,7 @@ type ParcelHubRecordRow = {
 };
 
 const PH_TIMEZONE_OFFSET_HOURS = 8;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function startOfPhilippineDay(now = new Date()) {
   const shifted = new Date(now.getTime() + PH_TIMEZONE_OFFSET_HOURS * 60 * 60 * 1000);
@@ -89,6 +90,10 @@ function sumAmounts(rows: MonetaryRow[] | null | undefined) {
     const amount = Number(row.amount ?? 0);
     return total + (Number.isFinite(amount) ? amount : 0);
   }, 0);
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
 }
 
 function formatTimeLabel(value?: string | null) {
@@ -237,7 +242,12 @@ export class OperatorDashboardService {
       .limit(1)
       .maybeSingle<HubAssignmentRow>();
     if (error) throw new InternalServerErrorException("Unable to load operator hub assignment.");
-    return data?.hub_id ?? null;
+    const assignedHubId = data?.hub_id?.trim();
+    return assignedHubId || null;
+  }
+
+  async getActiveHubId(session: SessionPayload) {
+    return this.requireActiveHubId(session);
   }
 
   private async requireActiveHubId(session: SessionPayload) {
@@ -311,14 +321,24 @@ export class OperatorDashboardService {
   }
 
   private async loadEarningsMetrics(operatorUserId: string, hubId: string, weekStart: Date, monthStart: Date) {
+    if (!isUuid(hubId)) {
+      return { totalEarned: 0, weeklyIncrease: 0, incentives: 0, bonusesEarned: 0 };
+    }
+
     const admin = this.supabaseService.createAdminClient();
     const [monthlyResult, weeklyResult, incentivesResult] = await Promise.all([
-      admin.schema("parcel").from("operator_earnings").select("amount").eq("operator_user_id", operatorUserId).eq("hub_id", hubId).gte("earned_at", monthStart.toISOString()),
-      admin.schema("parcel").from("operator_earnings").select("amount").eq("operator_user_id", operatorUserId).eq("hub_id", hubId).gte("earned_at", weekStart.toISOString()),
-      admin.schema("parcel").from("operator_incentives").select("amount", { count: "exact" }).eq("operator_user_id", operatorUserId).eq("hub_id", hubId).gte("awarded_at", monthStart.toISOString()),
+      admin.schema("routing").from("operator_earnings").select("amount").eq("hub_id", hubId).gte("earned_at", monthStart.toISOString()),
+      admin.schema("routing").from("operator_earnings").select("amount").eq("hub_id", hubId).gte("earned_at", weekStart.toISOString()),
+      admin.schema("routing").from("operator_incentives").select("amount", { count: "exact" }).eq("hub_id", hubId).gte("awarded_at", monthStart.toISOString()),
     ]);
     if (monthlyResult.error || weeklyResult.error || incentivesResult.error) {
-      throw new InternalServerErrorException("Unable to load earnings metrics.");
+      // Tables may not exist yet — return zeros gracefully instead of crashing
+      console.warn("[loadEarningsMetrics] Earnings tables not found or error, returning zeros:", {
+        monthly: monthlyResult.error?.message,
+        weekly: weeklyResult.error?.message,
+        incentives: incentivesResult.error?.message,
+      });
+      return { totalEarned: 0, weeklyIncrease: 0, incentives: 0, bonusesEarned: 0 };
     }
     return {
       totalEarned: sumAmounts(monthlyResult.data as MonetaryRow[]),
@@ -354,23 +374,40 @@ export class OperatorDashboardService {
     const hubRows = await this.listHubParcelRows(hubId);
     const receivedParcelIds = new Set(hubRows.map(r => getDraftRelation(r.parcel_drafts)?.id).filter(Boolean));
 
-    // 2. Get incoming parcels from service selections
-    const { data: selections } = await admin
+    // 2. Get incoming parcels from service selections. hub_id is text here, so it supports slug hub ids.
+    const { data: selections, error: selectionsError } = await admin
       .schema("parcel")
       .from("parcel_service_selections")
-      .select("parcel_draft_id, parcel_drafts(*, parcel_draft_items(*))")
+      .select("parcel_draft_id")
       .eq("hub_id", hubId);
 
-    const incomingParcels = (selections || [])
-      .filter(s => {
-        const draft = getDraftRelation(s.parcel_drafts);
-        if (!draft) return false;
-        const isSubmitted = draft.status === "submitted";
-        const isNotReceived = !receivedParcelIds.has(draft.id);
-        return isSubmitted && isNotReceived;
-      })
-      .map(s => {
-        const draft = getDraftRelation(s.parcel_drafts);
+    if (selectionsError) {
+      console.error("[getParcels] failed to query pending service selections:", selectionsError.message);
+    }
+
+    const selectedDraftIds = (selections ?? [])
+      .map((selection) => selection.parcel_draft_id)
+      .filter((draftId): draftId is string => Boolean(draftId) && !receivedParcelIds.has(draftId));
+
+    let drafts: any[] = [];
+    if (selectedDraftIds.length > 0) {
+      const draftsResult = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("*, parcel_draft_items(*)")
+        .in("id", selectedDraftIds)
+        .eq("status", "submitted");
+
+      if (draftsResult.error) {
+        console.error("[getParcels] failed to query pending drafts:", draftsResult.error.message);
+      } else {
+        drafts = draftsResult.data ?? [];
+      }
+    }
+
+    const incomingParcels = drafts
+      .filter(draft => !receivedParcelIds.has(draft.id))
+      .map(draft => {
         const firstItem = Array.isArray(draft?.parcel_draft_items) ? draft.parcel_draft_items[0] : null;
         
         return {
@@ -382,7 +419,7 @@ export class OperatorDashboardService {
           pickupAddress: draft.pickup_address || null,
           deliveryAddress: draft.delivery_address || null,
           packageSize: firstItem?.size || "Small",
-          serviceId: draft.service_id || "pakishhare",
+          serviceId: draft.service_id || "pakishare",
           status: "incoming",
           statusLabel: "Incoming",
           timeLabel: "In Transit",
@@ -512,7 +549,12 @@ export class OperatorDashboardService {
     }
     const admin = this.supabaseService.createAdminClient();
 
-    const { data: record, error: recordError } = await admin
+    const cleanRecordId = recordId.startsWith("incoming-")
+      ? recordId.replace("incoming-", "")
+      : recordId;
+
+    let finalRecord = await admin
+      .schema("parcel")
       .from("parcel_hub_records")
       .select(`
         id, hub_id, status, storage_location, received_at, picked_up_at,
@@ -523,29 +565,77 @@ export class OperatorDashboardService {
           parcel_draft_items ( id, size, quantity, item_type )
         )
       `)
-      .eq("id", recordId)
+      .eq("id", cleanRecordId)
       .eq("hub_id", hubId)
-      .maybeSingle<ParcelHubRecordRow>();
-    if (recordError) throw new InternalServerErrorException("Unable to load the parcel record.");
-    if (!record) throw new NotFoundException("Parcel record not found at this hub.");
+      .maybeSingle<ParcelHubRecordRow>()
+      .then(res => {
+        if (res.error) throw new InternalServerErrorException("Unable to load the parcel record.");
+        return res.data;
+      });
 
-    const draft = getDraftRelation(record.parcel_drafts);
+    if (!finalRecord) {
+      const { data: draft, error: draftError } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("id, status, service_id, drop_off_point_id, tracking_number")
+        .eq("id", cleanRecordId)
+        .maybeSingle();
+
+      if (draftError) {
+        throw new InternalServerErrorException("Unable to load the parcel draft details.");
+      }
+
+      if (draft && draft.drop_off_point_id === hubId) {
+        const nowIso = new Date().toISOString();
+        const dbStatus = mapParcelStatusToDatabase(normalized);
+        const { data: created, error: createError } = await admin
+          .schema("parcel")
+          .from("parcel_hub_records")
+          .insert({
+            parcel_draft_id: draft.id,
+            hub_id: hubId,
+            operator_user_id: session.userId,
+            status: dbStatus,
+            received_at: nowIso,
+            picked_up_at: dbStatus === "picked_up" ? nowIso : null,
+          })
+          .select(`
+            id, hub_id, status, storage_location, received_at, picked_up_at,
+            parcel_drafts (
+              id, user_id, tracking_number, sender_name, receiver_name, receiver_phone,
+              pickup_address, delivery_address, distance_text, service_id, service_price,
+              drop_off_point_id, drop_off_point_name, drop_off_point_address, status,
+              parcel_draft_items ( id, size, quantity, item_type )
+            )
+          `)
+          .single<ParcelHubRecordRow>();
+
+        if (createError || !created) {
+          throw new InternalServerErrorException("Unable to automatically register this parcel at the hub.");
+        }
+
+        finalRecord = created;
+      }
+    }
+
+    if (!finalRecord) throw new NotFoundException("Parcel record not found at this hub.");
+
+    const draft = getDraftRelation(finalRecord.parcel_drafts);
     const nowIso = new Date().toISOString();
     const dbStatus = mapParcelStatusToDatabase(normalized);
     const recordPatch: Record<string, unknown> = { status: dbStatus, updated_at: nowIso };
     if (dbStatus === "picked_up") recordPatch.picked_up_at = nowIso;
-    // dispatched_at column is missing in DB
 
     const { error: updateError } = await admin
       .schema("parcel")
-      .from("parcel_hub_records").update(recordPatch).eq("id", recordId).eq("hub_id", hubId);
+      .from("parcel_hub_records").update(recordPatch).eq("id", finalRecord.id).eq("hub_id", hubId);
     if (updateError) throw new InternalServerErrorException("Unable to update parcel status.");
 
     const progress = TRACKING_PROGRESS_MAP[normalized as keyof typeof TRACKING_PROGRESS_MAP];
     if (draft?.id) {
       const draftPatch: Record<string, unknown> = {
         tracking_current_location: normalized === "stored"
-          ? (record.storage_location ?? "Drop-off point storage shelf")
+          ? (finalRecord.storage_location ?? "Drop-off point storage shelf")
           : progress.currentLocation,
         tracking_progress_label: progress.progressLabel,
         tracking_progress_percentage: progress.progressPercentage,
@@ -569,7 +659,7 @@ export class OperatorDashboardService {
     }
 
     const refreshed = await this.listHubParcelRows(hubId);
-    const updated = refreshed.find((r) => r.id === recordId);
+    const updated = refreshed.find((r) => r.id === finalRecord.id);
     if (!updated) throw new InternalServerErrorException("Unable to load the updated parcel record.");
     return { parcel: formatHubParcelRow(updated) };
   }
@@ -579,6 +669,7 @@ export class OperatorDashboardService {
     const admin = this.supabaseService.createAdminClient();
 
     const { data: record, error: recordError } = await admin
+      .schema("parcel")
       .from("parcel_hub_records")
       .select(`
         id, hub_id, status,
@@ -603,8 +694,7 @@ export class OperatorDashboardService {
     }
 
     const { data: existingJob } = await admin
-      .schema("parcel")
-      .from("driver_jobs").select("id, status").eq("parcel_draft_id", draft.id).maybeSingle();
+      .schema("driver").from("driver_jobs").select("id, status").eq("parcel_draft_id", draft.id).maybeSingle();
     if (existingJob) throw new BadRequestException("A driver job already exists for this parcel.");
 
     const nowIso = new Date().toISOString();
@@ -618,7 +708,7 @@ export class OperatorDashboardService {
       .from("profiles").select("full_name").eq("id", draft.user_id ?? "").maybeSingle();
     const customerName = profile?.full_name ?? draft.sender_name ?? "Customer";
 
-    const { error: jobError } = await admin.from("driver_jobs").insert({
+    const { error: jobError } = await admin.schema("driver").from("driver_jobs").insert({
       job_number: draft.tracking_number ?? `JOB-${Math.floor(Math.random() * 100000)}`,
       parcel_draft_id: draft.id,
       customer_user_id: draft.user_id,
@@ -639,10 +729,10 @@ export class OperatorDashboardService {
     });
     if (jobError) throw new InternalServerErrorException(`Unable to create driver job: ${jobError.message}`);
 
-    await admin.from("parcel_hub_records")
+    await admin.schema("parcel").from("parcel_hub_records")
       .update({ status: "dispatched", updated_at: nowIso }).eq("id", recordId);
 
-    await admin.from("parcel_drafts").update({
+    await admin.schema("parcel").from("parcel_drafts").update({
       tracking_current_location: `Dispatched from ${draft.drop_off_point_name ?? "hub"}`,
       tracking_progress_label: "Parcel dispatched from drop-off point",
       tracking_progress_percentage: 80,
@@ -670,6 +760,7 @@ export class OperatorDashboardService {
     const admin = this.supabaseService.createAdminClient();
 
     const { data: draftRecord, error: draftError } = await admin
+      .schema("parcel")
       .from("parcel_drafts")
       .select("id, user_id, tracking_number, tracking_progress_percentage")
       .eq("tracking_number", normalized)

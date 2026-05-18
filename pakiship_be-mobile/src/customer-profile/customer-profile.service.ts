@@ -252,8 +252,7 @@ export class CustomerProfileService {
         .eq("user_id", session.userId)
         .eq("status", "submitted"),
       admin
-        .schema("account")
-        .from("customer_activity_logs")
+        .schema("parcel").from("parcel_activity_logs")
         .select("id, activity_type, title, description, created_at")
         .eq("user_id", session.userId)
         .order("created_at", { ascending: false })
@@ -725,6 +724,14 @@ export class CustomerProfileService {
       throw new InternalServerErrorException("Unable to prepare two-factor authentication.");
     }
 
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_2FA_SETUP",
+      "User",
+      session.userId,
+      (fullName) => `2FA setup initiated for "${fullName}"`,
+    );
+
     return {
       secret,
       otpauthUri: buildOtpAuthUri(secret, profileResponse.data.email),
@@ -814,6 +821,7 @@ export class CustomerProfileService {
     }
 
     const { error } = await admin
+      .schema("account")
       .from("profiles")
       .update({ two_factor_enabled: false })
       .eq("id", session.userId);
@@ -848,6 +856,36 @@ export class CustomerProfileService {
         title,
         description,
       });
+
+      let action = "USER_ACTIVITY";
+      if (title.includes("Profile details updated") || title.includes("Profile photo updated")) {
+        action = "USER_PROFILE_UPDATED";
+      } else if (title.includes("Password changed")) {
+        action = "USER_PASSWORD_UPDATED";
+      } else if (title.includes("Authenticator app enabled")) {
+        action = "USER_2FA_ENABLED";
+      } else if (title.includes("Authenticator app removed")) {
+        action = "USER_2FA_DISABLED";
+      }
+
+      await this.supabaseService.logActivity(
+        userId,
+        action,
+        "User",
+        userId,
+        (fullName) => {
+          if (action === "USER_PROFILE_UPDATED") {
+            return `Profile details updated for "${fullName}"`;
+          } else if (action === "USER_PASSWORD_UPDATED") {
+            return `Password updated for "${fullName}"`;
+          } else if (action === "USER_2FA_ENABLED") {
+            return `2FA activated for "${fullName}"`;
+          } else if (action === "USER_2FA_DISABLED") {
+            return `2FA deactivated for "${fullName}"`;
+          }
+          return `${title} for "${fullName}"`;
+        }
+      );
 
       await this.customerNotificationsService.createNotification(
         userId,

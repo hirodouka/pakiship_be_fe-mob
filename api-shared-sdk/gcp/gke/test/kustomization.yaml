@@ -1,0 +1,23 @@
+resources:
+  - 00-namespace.yaml
+  - ../00-shared-services.yaml
+
+namespace: api-center-test
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/0/secretRef/name
+        value: api-shared-services-test
+  - target:
+      kind: Deployment
+      name: payment-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-payment-service:subscriptions-50f5ee6-202605171500
+      - op: replace
+        path: /spec/template/spec/containers/0/env/4/value
+        value: "true"

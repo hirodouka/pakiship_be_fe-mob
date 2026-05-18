@@ -1,0 +1,719 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: payment-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: payment-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-payment-service:payment-tribe-fix-50f5ee6-202605162310
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4010
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4010"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://payment-service:4010
+            - name: PAYMENT_SUBSCRIPTIONS_ENABLED
+              value: "false"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: payment-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: payment-service
+  ports:
+    - name: http
+      port: 4010
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sms-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: sms-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sms-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sms-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: sms-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-sms-service:migration-20260516
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4011
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4011"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://sms-service:4011
+            - name: SMS_STORE_MODE
+              value: redis
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sms-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: sms-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sms-service
+  ports:
+    - name: http
+      port: 4011
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sms-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sms-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: email-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: email-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: email-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: email-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-email-service:migration-20260516
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4012
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4012"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://email-service:4012
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: email-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: email-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: email-service
+  ports:
+    - name: http
+      port: 4012
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: email-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: email-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gauth-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: gauth-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gauth-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gauth-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: gauth-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-gauth-service:migration-20260516
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4013
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4013"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://gauth-service:4013
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gauth-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: gauth-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gauth-service
+  ports:
+    - name: http
+      port: 4013
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gauth-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gauth-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otp-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: otp-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otp-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otp-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: otp-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-otp-service:migration-20260516
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4014
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4014"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://otp-service:4014
+            - name: OTP_STORE_MODE
+              value: redis
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otp-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: otp-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: otp-service
+  ports:
+    - name: http
+      port: 4014
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: otp-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otp-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geo-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: geo-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: geo-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: geo-service
+        app.kubernetes.io/component: shared-service
+        app.kubernetes.io/part-of: api-center
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: geo-service
+          image: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-geo-service:migration-20260516
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4015
+          envFrom:
+            - secretRef:
+                name: api-shared-services-prod
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "4015"
+            - name: API_CENTER_URL
+              value: http://api-center
+            - name: SERVICE_BASE_URL
+              value: http://geo-service:4015
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-service
+  namespace: api-center
+  labels:
+    app.kubernetes.io/name: geo-service
+    app.kubernetes.io/component: shared-service
+    app.kubernetes.io/part-of: api-center
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: geo-service
+  ports:
+    - name: http
+      port: 4015
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: geo-service
+  namespace: api-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: geo-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

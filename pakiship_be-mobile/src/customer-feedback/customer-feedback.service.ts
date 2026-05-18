@@ -193,6 +193,7 @@ export class CustomerFeedbackService {
       parcel_draft_id: ownedParcel.id,
       tracking_number: ownedParcel.tracking_number ?? trackingNumber,
       customer_user_id: session.userId,
+      reviewer_id: session.userId,
       hub_id: hubId,
       rating: input.rating,
       review_text: review,
@@ -216,20 +217,19 @@ export class CustomerFeedbackService {
           })
           .select("id")
           .single();
-    
-    // Update driver_jobs rating if a driver was assigned
-    if (ownedParcel.assigned_driver_id) {
-      await admin
-        .schema("parcel")
-        .from("driver_jobs")
-        .update({ rating: input.rating })
-        .eq("parcel_draft_id", ownedParcel.id)
-        .eq("driver_user_id", ownedParcel.assigned_driver_id);
-    }
 
     if (result.error || !result.data) {
       console.error('[CustomerFeedback] Submission failed:', result.error);
       throw new InternalServerErrorException("Unable to submit parcel feedback right now.");
+    }
+    
+    // Update driver_jobs rating if a driver was assigned
+    if (ownedParcel.assigned_driver_id) {
+      await admin
+        .schema("driver").from("driver_jobs")
+        .update({ rating: input.rating })
+        .eq("parcel_draft_id", ownedParcel.id)
+        .eq("driver_user_id", ownedParcel.assigned_driver_id);
     }
 
     return {

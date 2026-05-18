@@ -1,17 +1,14 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Modal, Switch, Dimensions
+  StyleSheet, Modal, Switch, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  User, Mail, Phone, MapPin, Calendar, Save,
-  Lock, ShieldCheck, Bell, MessageSquare, RefreshCw, X, Eye, EyeOff,
-  ArrowLeft, Camera, Upload, FileCheck, LogOut
-} from 'lucide-react-native';
+import { User, Mail, Phone, MapPin, Calendar, Save, Lock, ShieldCheck, Bell, MessageSquare, RefreshCw, X, Eye, EyeOff, ArrowLeft, Camera, Upload, FileCheck, LogOut, AlertCircle } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'react-native';
+import { Image, Alert } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 type TabType = 'profile' | 'discount' | 'preferences';
 
@@ -30,6 +27,10 @@ export default function EditProfile() {
   const [showPass, setShowPass] = useState({ current: false, new: false });
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [twoFactorUri, setTwoFactorUri] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [twoFactorStep, setTwoFactorStep] = useState<'prompt' | 'qr'>('prompt');
+  const [twoFactorError, setTwoFactorError] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -141,6 +142,59 @@ export default function EditProfile() {
 
   const togglePref = (key: keyof typeof preferences) => {
     setPreferences(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handle2FATogglePress = async () => {
+    setTwoFactorError('');
+    setTwoFactorCode('');
+    if (preferences.twoFactor) {
+      // It's currently ON, so we need to disable it.
+      setShow2FAModal(true);
+      setTwoFactorStep('prompt');
+    } else {
+      // It's OFF, start setup
+      try {
+        setLoading(true);
+        const res = await authApi.setupTwoFactor();
+        setTwoFactorUri(res.otpauthUri);
+        setTwoFactorStep('qr');
+        setShow2FAModal(true);
+      } catch (err: any) {
+        showToast(err.message || 'Failed to start 2FA setup');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const submit2FACode = async () => {
+    if (!twoFactorCode || twoFactorCode.length < 6) {
+      setTwoFactorError('Please enter a valid 6-digit code');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setTwoFactorError('');
+      if (preferences.twoFactor) {
+        // Disabling
+        await authApi.disableTwoFactor(twoFactorCode);
+        setPreferences(p => ({ ...p, twoFactor: false }));
+        showToast('2FA has been disabled');
+      } else {
+        // Enabling
+        await authApi.enableTwoFactor(twoFactorCode);
+        setPreferences(p => ({ ...p, twoFactor: true }));
+        showToast('2FA successfully enabled!');
+      }
+      setShow2FAModal(false);
+      setTwoFactorCode('');
+    } catch (err: any) {
+      setTwoFactorError(err.message || 'Invalid verification code. Please try again.');
+      setTwoFactorCode(''); // clear input so they can type cleanly
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -302,7 +356,7 @@ export default function EditProfile() {
             <ShieldCheck size={20} color="#39B5A8" />
             <Text style={styles.twoFAText}>2FA Security</Text>
           </View>
-          <Switch trackColor={{ false: '#e5e7eb', true: '#39B5A8' }} thumbColor="#fff" value={preferences.twoFactor} onValueChange={() => setShow2FAModal(true)} />
+          <Switch trackColor={{ false: '#e5e7eb', true: '#39B5A8' }} thumbColor="#fff" value={preferences.twoFactor} onValueChange={handle2FATogglePress} />
         </View>
 
         <View style={styles.bottomButtonsRow}>
@@ -369,28 +423,81 @@ export default function EditProfile() {
 
       {/* 2FA Modal */}
       <Modal visible={show2FAModal} animationType="fade" transparent>
-        <View style={styles.modalOverlayCentered}>
-          <View style={styles.modalCardCentered}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Enable 2FA</Text>
-              <TouchableOpacity onPress={() => setShow2FAModal(false)}><X size={24} color="#9ca3af" /></TouchableOpacity>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={{ flex: 1 }}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlayCentered}>
+              <View style={[styles.modalCardCentered, { maxHeight: '85%' }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>{preferences.twoFactor ? 'Disable 2FA' : 'Setup 2FA'}</Text>
+                  <TouchableOpacity onPress={() => setShow2FAModal(false)}><X size={24} color="#9ca3af" /></TouchableOpacity>
+                </View>
+                
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+                  {!preferences.twoFactor && twoFactorUri ? (
+                    <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                      <Text style={[styles.modalDesc, { textAlign: 'center', marginBottom: 12 }]}>
+                        Scan this QR code with Google Authenticator or Authy.
+                      </Text>
+                      <View style={{ padding: 10, backgroundColor: '#fff', borderRadius: 16, elevation: 2 }}>
+                        <QRCode value={twoFactorUri} size={150} />
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.modalDesc}>
+                      {preferences.twoFactor 
+                        ? 'Enter the 6-digit code from your authenticator app to disable 2FA.'
+                        : 'Two-factor authentication adds an extra layer of security to your account.'}
+                    </Text>
+                  )}
+
+                  {twoFactorError ? (
+                    <View style={{ backgroundColor: '#FFF5F5', borderWidth: 1, borderColor: '#F9C7C7', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 18, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <AlertCircle color="#F73A3A" size={14} strokeWidth={2.2} />
+                      <Text style={{ color: '#F73A3A', fontSize: 11, fontWeight: '600', flex: 1, lineHeight: 15 }}>{twoFactorError}</Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.modalSpace}>
+                    <Text style={styles.modalFieldLabel}>AUTHENTICATOR CODE</Text>
+                    <View style={styles.passRow}>
+                      <TextInput 
+                        style={styles.passInput} 
+                        placeholder="000000"
+                        placeholderTextColor="#9ca3af"
+                        keyboardType="numeric"
+                        maxLength={6}
+                        value={twoFactorCode} 
+                        onChangeText={(v) => {
+                          setTwoFactorCode(v);
+                          if (twoFactorError) setTwoFactorError('');
+                        }}
+                      />
+                    </View>
+                  </View>
+                </ScrollView>
+                
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShow2FAModal(false)}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[
+                      styles.modalUpdateBtnTop, 
+                      { backgroundColor: twoFactorCode.length === 6 ? '#39B5A8' : '#9EE0D3' }
+                    ]} 
+                    onPress={submit2FACode} 
+                    disabled={loading || twoFactorCode.length < 6}
+                  >
+                    <Text style={styles.modalUpdateText}>{preferences.twoFactor ? 'Disable' : 'Verify & Enable'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-            <Text style={styles.modalDesc}>Two-factor authentication adds an extra layer of security to your account.</Text>
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShow2FAModal(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalUpdateBtnTop} onPress={() => {
-                togglePref('twoFactor');
-                showToast('2FA enabled!');
-                setShow2FAModal(false);
-              }}>
-                <Text style={styles.modalUpdateText}>Enable</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
     </View>

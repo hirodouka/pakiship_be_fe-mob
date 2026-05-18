@@ -7,6 +7,8 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { SupabaseService } from "../supabase/supabase.service";
+import { TribeClient } from "@implementsprint/sdk";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { SessionPayload, UserRole } from "../common/session/session.types";
 import {
   buildOtpAuthUri,
@@ -51,6 +53,23 @@ function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "").slice(-10);
 }
 
+function getPhoneLookupVariants(phone: string) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return [];
+
+  return Array.from(new Set([
+    normalized,
+    `0${normalized}`,
+    `+63${normalized}`,
+    `63${normalized}`,
+  ]));
+}
+
+function toE164PhilippinePhone(phone: string) {
+  const normalized = normalizePhone(phone);
+  return normalized ? `+63${normalized}` : "";
+}
+
 function getRedirectPath(role: UserRole) {
   if (role === "driver") return "/driver/home";
   if (role === "operator") return "/operator/home";
@@ -58,6 +77,8 @@ function getRedirectPath(role: UserRole) {
 }
 
 const PASSWORD_REGEX = /^(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/;
+const RESET_OTP_PREFIX = "local";
+const RESET_OTP_TTL_MS = 10 * 60 * 1000;
 
 function isMissingProfileColumnError(message?: string | null) {
   const normalized = String(message ?? "").toLowerCase();
@@ -69,9 +90,48 @@ function isMissingProfileColumnError(message?: string | null) {
   );
 }
 
+function createResetCode() {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function createResetOtpId() {
+  return `reset_${randomBytes(16).toString("hex")}`;
+}
+
+function hashResetCode(otpId: string, code: string) {
+  return createHash("sha256")
+    .update(`${process.env.AUTH_SECRET || "pakiship-dev-secret"}:${otpId}:${code}`)
+    .digest("hex");
+}
+
+function encodeResetOtpReference(otpId: string, code: string) {
+  return `${RESET_OTP_PREFIX}:${otpId}:${hashResetCode(otpId, code)}`;
+}
+
+function parseResetOtpReference(value?: string | null) {
+  const [prefix, otpId, hash] = String(value ?? "").split(":");
+  if (prefix !== RESET_OTP_PREFIX || !otpId || !hash) return null;
+  return { otpId, hash };
+}
+
+function matchesResetCode(expectedHash: string, otpId: string, code: string) {
+  const actualHash = hashResetCode(otpId, code);
+  const expected = Buffer.from(expectedHash, "hex");
+  const actual = Buffer.from(actualHash, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
 @Injectable()
 export class AuthService {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  private readonly tribeClient: TribeClient;
+
+  constructor(private readonly supabaseService: SupabaseService) {
+    this.tribeClient = new TribeClient({
+      gatewayUrl: process.env.APICENTER_URL || "https://api-center-test.itsandbox.site",
+      tribeId: process.env.APICENTER_TRIBE_ID || "pakiapps",
+      secret: process.env.APICENTER_TRIBE_SECRET || "",
+    });
+  }
 
   async changePassword(
     session: SessionPayload,
@@ -128,6 +188,14 @@ export class AuthService {
       throw new InternalServerErrorException("Password updated but profile security details could not be saved.");
     }
 
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_PASSWORD_UPDATED",
+      "User",
+      session.userId,
+      (fullName) => `Password updated for "${fullName}"`,
+    );
+
     return {
       success: true,
       passwordUpdatedAt,
@@ -167,6 +235,14 @@ export class AuthService {
     if (authUpdate.error) {
       throw new InternalServerErrorException("Unable to prepare two-factor authentication.");
     }
+
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_2FA_SETUP",
+      "User",
+      session.userId,
+      (fullName) => `2FA setup initiated for "${fullName}"`,
+    );
 
     return {
       secret,
@@ -209,6 +285,14 @@ export class AuthService {
       throw new InternalServerErrorException("Two-factor authentication enabled but profile could not be updated.");
     }
 
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_2FA_ENABLED",
+      "User",
+      session.userId,
+      (fullName) => `2FA activated for "${fullName}"`,
+    );
+
     return {
       success: true,
       twoFactorEnabled: true,
@@ -250,6 +334,14 @@ export class AuthService {
       throw new InternalServerErrorException("Two-factor authentication disabled but profile could not be updated.");
     }
 
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_2FA_DISABLED",
+      "User",
+      session.userId,
+      (fullName) => `2FA deactivated for "${fullName}"`,
+    );
+
     return {
       success: true,
       twoFactorEnabled: false,
@@ -271,8 +363,13 @@ export class AuthService {
 
     let query = admin
       .schema("account").from("profiles")
-      .select("email")
-      .eq(identifierColumn, normalizedIdentifier);
+      .select("id, email, phone");
+
+    if (identifierColumn === "email") {
+      query = query.eq("email", normalizedIdentifier);
+    } else {
+      query = query.in("phone", getPhoneLookupVariants(identifier));
+    }
 
     if (normalizedRole) {
       query = query.eq("role", normalizedRole);
@@ -284,28 +381,165 @@ export class AuthService {
       throw new InternalServerErrorException("Unable to prepare your password reset right now.");
     }
 
-    if (!profileRow?.email) {
+    if (!profileRow) {
+      // Return a generic success message to prevent account enumeration
       return {
         success: true,
-        message: "If an account matches those details, a reset link has been sent to its email address.",
+        message: "If an account matches those details, a verification code has been sent.",
       };
     }
 
-    const redirectTo = `${origin.replace(/\/$/, "")}/reset-password`;
-    const resetResult = await admin.auth.resetPasswordForEmail(profileRow.email, {
-      redirectTo,
-    });
+    let targetValue = "";
+    let channelValue: "sms" | "email" = "email";
 
-    if (resetResult.error) {
-      throw new InternalServerErrorException(
-        resetResult.error.message || "Unable to send the password reset email right now.",
-      );
+    if (identifierColumn === "email") {
+      targetValue = profileRow.email;
+      channelValue = "email";
+    } else {
+      targetValue = toE164PhilippinePhone(profileRow.phone || normalizedIdentifier);
+      channelValue = "sms";
+    }
+
+    const resetCode = createResetCode();
+    const otpId = createResetOtpId();
+    const expiry = new Date(Date.now() + RESET_OTP_TTL_MS).toISOString();
+
+    console.log(`[Password Reset] Sending reset code to target: ${targetValue} via channel: ${channelValue}`);
+
+    try {
+      await this.tribeClient.authenticate();
+      if (channelValue === "email") {
+        await this.tribeClient.emailSend({
+          to: [{ email: targetValue }],
+          subject: "Your PakiShip password reset code",
+          text: `Your PakiShip password reset code is ${resetCode}. It expires in 10 minutes. If you did not request this, you can ignore this email.`,
+          html: `
+            <p>Your PakiShip password reset code is:</p>
+            <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${resetCode}</p>
+            <p>This code expires in 10 minutes.</p>
+            <p>If you did not request this, you can ignore this email.</p>
+          `,
+          metadata: { purpose: "password_reset", otpId },
+        });
+      } else {
+        await this.tribeClient.smsSend({
+          to: targetValue,
+          message: `Your PakiShip password reset code is ${resetCode}. It expires in 10 minutes.`,
+          metadata: { purpose: "password_reset", otpId },
+        });
+      }
+
+      console.log("[Password Reset] Reset code delivery requested:", {
+        otpId,
+        expiresAt: expiry,
+        channel: channelValue,
+        target: targetValue,
+      });
+    } catch (sdkError) {
+      console.error("[Password Reset] Reset code delivery failed:", sdkError);
+      throw new InternalServerErrorException("Unable to send verification code. Please try again later.");
+    }
+
+    const { error: updateError } = await admin
+      .schema("account").from("profiles")
+      .update({
+        password_reset_otp: encodeResetOtpReference(otpId, resetCode),
+        password_reset_expiry: expiry,
+      })
+      .eq("id", profileRow.id);
+
+    if (updateError) {
+      console.error("[Password Reset] Failed to store OTP reference in database:", updateError);
+      throw new InternalServerErrorException("Unable to store password reset request.");
     }
 
     return {
       success: true,
-      email: profileRow.email,
-      message: "Password reset email sent.",
+      otpId,
+      method: channelValue,
+      message: `A verification code has been sent via ${channelValue === "sms" ? "SMS" : "Email"}.`,
+    };
+  }
+
+  async resetPasswordWithOtp(body: { identifier: string; code: string; newPassword: string; otpId?: string }) {
+    const { identifier, code, newPassword, otpId } = body;
+    if (!identifier || !code || !newPassword) {
+      throw new BadRequestException("Identifier, OTP code, and new password are required.");
+    }
+
+    if (!PASSWORD_REGEX.test(newPassword)) {
+      throw new BadRequestException(
+        "New password must be at least 8 characters and include a number and special character.",
+      );
+    }
+
+    const admin = this.supabaseService.createAdminClient();
+    const normalizedIdentifier = identifier.includes("@")
+      ? normalizeEmail(identifier)
+      : normalizePhone(identifier);
+    const identifierColumn = identifier.includes("@") ? "email" : "phone";
+
+    // 1. Find the user profile
+    let profileQuery = admin
+      .schema("account").from("profiles")
+      .select("id, password_reset_otp, password_reset_expiry");
+
+    if (identifierColumn === "email") {
+      profileQuery = profileQuery.eq("email", normalizedIdentifier);
+    } else {
+      profileQuery = profileQuery.in("phone", getPhoneLookupVariants(identifier));
+    }
+
+    const { data: profileRow, error: profileError } = await profileQuery.maybeSingle();
+
+    if (profileError || !profileRow) {
+      throw new NotFoundException("Profile not found.");
+    }
+
+    const resetReference = parseResetOtpReference(profileRow.password_reset_otp);
+    if (!resetReference) {
+      throw new BadRequestException("No active OTP request found for this account.");
+    }
+
+    if (otpId && otpId !== resetReference.otpId) {
+      throw new UnauthorizedException("Invalid or expired OTP code.");
+    }
+
+    const expiryDate = new Date(profileRow.password_reset_expiry ?? "");
+    if (!profileRow.password_reset_expiry || Number.isNaN(expiryDate.getTime()) || expiryDate.getTime() < Date.now()) {
+      throw new UnauthorizedException("Invalid or expired OTP code.");
+    }
+
+    if (!matchesResetCode(resetReference.hash, resetReference.otpId, code.trim())) {
+      throw new UnauthorizedException("Invalid or expired OTP code.");
+    }
+
+    // 3. Update password in Supabase Auth via admin API
+    const updateResult = await admin.auth.admin.updateUserById(profileRow.id, {
+      password: newPassword,
+    });
+
+    if (updateResult.error) {
+      console.error("[OTP Verify] Password update failed:", updateResult.error);
+      throw new InternalServerErrorException(
+        updateResult.error.message || "Unable to update password.",
+      );
+    }
+
+    // 4. Clear OTP details in profile
+    const passwordUpdatedAt = new Date().toISOString();
+    await admin
+      .schema("account").from("profiles")
+      .update({
+        password_updated_at: passwordUpdatedAt,
+        password_reset_otp: null,
+        password_reset_expiry: null,
+      })
+      .eq("id", profileRow.id);
+
+    return {
+      success: true,
+      message: "Password reset successfully. You can now log in.",
     };
   }
 
@@ -435,16 +669,21 @@ export class AuthService {
 
     let query = admin
       .schema("account").from("profiles")
-      .select("id, full_name, email, phone, role, two_factor_enabled")
-      .eq(identifierColumn, normalizedIdentifier);
+      .select("id, full_name, email, phone, role, two_factor_enabled");
+
+    if (identifierColumn === "email") {
+      query = query.eq("email", normalizedIdentifier);
+    } else {
+      query = query.in("phone", getPhoneLookupVariants(identifier));
+    }
 
     if (normalizedRole) {
       query = query.eq("role", normalizedRole);
     }
 
-    const { data: profileRow, error: profileError } = await query.maybeSingle();
+    const { data: profileRows, error: profileError } = await query;
 
-    if (profileError || !profileRow) {
+    if (profileError || !profileRows || profileRows.length === 0) {
       console.error('--- SIGNIN ERROR: Profile Not Found ---');
       console.error('Identifier:', normalizedIdentifier);
       console.error('Role:', normalizedRole);
@@ -452,26 +691,41 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials. (Account not found in the new schema)");
     }
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: profileRow.email,
-      password,
-    });
+    let authData: any = null;
+    let authError: any = null;
+    let matchedProfileRow: any = null;
 
-    if (authError || !authData.user) {
+    // Loop through all matching profiles and verify credentials via Supabase
+    for (const row of profileRows) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: row.email,
+        password,
+      });
+
+      if (data && data.user && !error) {
+        authData = data;
+        matchedProfileRow = row;
+        break;
+      } else {
+        authError = error;
+      }
+    }
+
+    if (!authData || !matchedProfileRow) {
       console.error('--- SIGNIN ERROR: Supabase Auth Failed ---');
-      console.error('Email:', profileRow.email);
-      console.error('Auth Error:', authError?.message);
+      console.error('Emails tried:', profileRows.map(r => r.email));
+      console.error('Last Auth Error:', authError?.message);
       throw new UnauthorizedException("Invalid credentials for the selected role. (Password mismatch)");
     }
 
     const session = {
-      userId: profileRow.id,
-      role: profileRow.role as UserRole,
-      fullName: profileRow.full_name,
+      userId: matchedProfileRow.id,
+      role: matchedProfileRow.role as UserRole,
+      fullName: matchedProfileRow.full_name,
     } satisfies SessionPayload;
 
-    if (profileRow.two_factor_enabled) {
-      const userResponse = await admin.auth.admin.getUserById(profileRow.id);
+    if (matchedProfileRow.two_factor_enabled) {
+      const userResponse = await admin.auth.admin.getUserById(matchedProfileRow.id);
       const secret = userResponse.data.user?.user_metadata?.two_factor_secret;
 
       if (typeof secret === "string" && secret.length > 0) {
@@ -479,22 +733,30 @@ export class AuthService {
           requiresTwoFactor: true as const,
           challengeToken: createTwoFactorChallengeToken(session),
           user: {
-            id: profileRow.id,
-            fullName: profileRow.full_name,
-            role: profileRow.role as UserRole,
+            id: matchedProfileRow.id,
+            fullName: matchedProfileRow.full_name,
+            role: matchedProfileRow.role as UserRole,
           },
-          redirectPath: getRedirectPath(profileRow.role as UserRole),
+          redirectPath: getRedirectPath(matchedProfileRow.role as UserRole),
         };
       }
     }
 
+    await this.supabaseService.logActivity(
+      matchedProfileRow.id,
+      "USER_LOGIN",
+      "User",
+      matchedProfileRow.id,
+      `${matchedProfileRow.role || "customer"} login`,
+    );
+
     return {
       user: {
-        id: profileRow.id,
-        fullName: profileRow.full_name,
-        role: profileRow.role as UserRole,
+        id: matchedProfileRow.id,
+        fullName: matchedProfileRow.full_name,
+        role: matchedProfileRow.role as UserRole,
       },
-      redirectPath: getRedirectPath(profileRow.role as UserRole),
+      redirectPath: getRedirectPath(matchedProfileRow.role as UserRole),
       session,
     };
   }
@@ -513,6 +775,14 @@ export class AuthService {
     if (typeof secret !== "string" || !verifyTotpToken(secret, code)) {
       throw new UnauthorizedException("Invalid authenticator code.");
     }
+
+    await this.supabaseService.logActivity(
+      session.userId,
+      "USER_LOGIN",
+      "User",
+      session.userId,
+      `${session.role || "customer"} login`,
+    );
 
     return {
       user: {

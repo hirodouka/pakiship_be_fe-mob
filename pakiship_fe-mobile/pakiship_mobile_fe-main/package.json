@@ -6,7 +6,7 @@
   "scripts": {
     "setup": "npm install --legacy-peer-deps",
     "install:app": "npm install --legacy-peer-deps",
-    "start": "node update-ip.js && npx expo start --clear",
+    "start": "node update-ip.js && npx expo start --clear --offline",
     "dev": "npx expo start --tunnel",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
@@ -35,9 +35,10 @@
     "react-native": "0.81.5",
     "react-native-maps": "^1.20.1",
     "react-native-maps-directions": "^1.9.0",
+    "react-native-qrcode-svg": "^6.3.21",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "react-native-svg": "15.12.1",
+    "react-native-svg": "^15.12.1",
     "react-native-web": "^0.21.0",
     "react-refresh": "^0.18.0"
   },

@@ -16,8 +16,12 @@ export interface ParcelItem {
 }
 
 export const parcelApi = {
-  getHubs: async () => {
-    return apiRequest('/parcel-drafts/hubs');
+  getHubs: async (pickupLat?: number, pickupLng?: number) => {
+    let url = '/parcel-drafts/hubs';
+    if (pickupLat !== undefined && pickupLng !== undefined) {
+      url += `?pickupLat=${pickupLat}&pickupLng=${pickupLng}`;
+    }
+    return apiRequest(url);
   },
 
   saveStep1: async (pickup: LocationData, delivery: LocationData, distance?: string, duration?: string, draftId?: string) => {
@@ -76,6 +80,7 @@ export const parcelApi = {
     totalParcels: number;
     distance?: string;
     duration?: string;
+    dropOffPoint?: any;
   }) => {
     return apiRequest(`/parcel-drafts/${draftId}/booking`, {
       method: 'POST',

@@ -1,0 +1,4 @@
+# Copy this file to .npmrc in any tribe repository that consumes @implementsprint/sdk.
+# Set GITHUB_TOKEN to a token with read:packages permission.
+@implementsprint:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}

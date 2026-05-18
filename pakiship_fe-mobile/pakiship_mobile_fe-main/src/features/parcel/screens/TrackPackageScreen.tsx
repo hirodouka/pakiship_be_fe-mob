@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Modal, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Linking,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Search, Package, MapPin, Clock, AlertCircle, Phone, PhoneOff, List, Map as MapIcon } from 'lucide-react-native';
@@ -23,7 +23,6 @@ export default function TrackPackage() {
       fetchTrackingData(route.params.trackingNumber);
     }
   }, [route.params?.trackingNumber]);
-  const [isCalling, setIsCalling] = useState(false);
   const [activeTab, setActiveTab] = useState<'timeline' | 'map'>('timeline');
 
   const fetchTrackingData = async (id: string) => {
@@ -175,7 +174,15 @@ export default function TrackPackage() {
                   {trackingResult.assignedDriver.vehicleType} · {trackingResult.assignedDriver.plateNumber || 'TBD'}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.callBtn} onPress={() => setIsCalling(true)}>
+              <TouchableOpacity
+                style={styles.callBtn}
+                onPress={() => {
+                  const phone = trackingResult?.assignedDriver?.phone;
+                  if (phone) {
+                    Linking.openURL(`tel:${phone}`);
+                  }
+                }}
+              >
                 <Phone size={18} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -188,21 +195,6 @@ export default function TrackPackage() {
           <Text style={styles.emptySubtitle}>Enter your tracking ID above.</Text>
         </View>
       )}
-
-      {/* Calling modal */}
-      <Modal visible={isCalling} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.callingCard}>
-            <View style={styles.callingIcon}><Phone size={28} color="#fff" /></View>
-            <Text style={styles.callingName}>Calling {trackingResult?.assignedDriver?.name}</Text>
-            <Text style={styles.callingStatus}>Connecting...</Text>
-            <TouchableOpacity style={styles.endCallBtn} onPress={() => setIsCalling(false)}>
-              <PhoneOff size={18} color="#fff" />
-              <Text style={styles.endCallText}>End Call</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -252,7 +244,8 @@ const styles = StyleSheet.create({
   callingCard: { backgroundColor: '#fff', borderRadius: 30, padding: 32, alignItems: 'center', width: '100%' },
   callingIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#39B5A8', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   callingName: { fontSize: 18, fontWeight: '900', color: '#1A5D56' },
-  callingStatus: { fontSize: 10, color: '#aaa', fontWeight: '700', letterSpacing: 1, marginTop: 4, marginBottom: 32 },
+  callingNumber: { fontSize: 14, color: '#39B5A8', fontWeight: '800', marginTop: 4, letterSpacing: 0.5 },
+  callingStatus: { fontSize: 10, color: '#aaa', fontWeight: '700', letterSpacing: 1, marginTop: 12, marginBottom: 32 },
   endCallBtn: { width: '100%', height: 50, backgroundColor: '#ef4444', borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   endCallText: { color: '#fff', fontWeight: '900', fontSize: 14 },
 });

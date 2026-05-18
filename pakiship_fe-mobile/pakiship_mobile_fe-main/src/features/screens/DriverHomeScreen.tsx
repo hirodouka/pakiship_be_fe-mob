@@ -234,6 +234,7 @@ export default function DriverHomeScreen() {
   const [jobFilter, setJobFilter] = useState<JobStatus>('available');
   const [isOnline, setIsOnline] = useState(false);
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
+  const [driverRating, setDriverRating] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
@@ -255,6 +256,9 @@ export default function DriverHomeScreen() {
 
       setIsOnline(profileRes.isOnline);
       setProfileImageUri(profileRes.profilePicture);
+      
+      // Pull real average rating from customer reviews (via jobs metrics)
+      setDriverRating(jobsRes.metrics?.ratingAverage || 0);
 
       // Map stats
       const newStats: StatItem[] = [
@@ -507,6 +511,7 @@ export default function DriverHomeScreen() {
             profileImageUri={profileImageUri}
             onToggleOnline={handleToggleOnline}
             onlineToggleRef={onlineToggleRef}
+            rating={driverRating}
           />
 
           {tab === 'home' ? (
@@ -949,12 +954,14 @@ function ProfileCard({
   profileImageUri,
   onToggleOnline,
   onlineToggleRef,
+  rating,
 }: {
   driverName: string;
   isOnline: boolean;
   profileImageUri: string | null;
   onToggleOnline: () => void;
   onlineToggleRef: RefObject<View | null>;
+  rating: number;
 }) {
   return (
     <View style={styles.profileCard}>
@@ -981,7 +988,7 @@ function ProfileCard({
             <Text style={styles.onlineText}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
           </Pressable>
         </View>
-        <Text style={styles.profileMeta}>PakiShip Partner Driver · 4.8 Rating</Text>
+        <Text style={styles.profileMeta}>PakiShip Partner Driver · {rating.toFixed(1)} Rating</Text>
       </View>
     </View>
   );

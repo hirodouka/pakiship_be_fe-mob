@@ -238,16 +238,14 @@ export class DriverDashboardService {
     const admin = this.supabaseService.createAdminClient();
     const [availableResult, assignedResult] = await Promise.all([
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("*")
         .eq("status", "available")
         .is("driver_user_id", null)
         .order("created_at", { ascending: false })
         .limit(25),
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("*")
         .eq("driver_user_id", driverUserId)
         .in("status", ["in-progress", "completed"])
@@ -274,21 +272,18 @@ export class DriverDashboardService {
 
     const [completedTodayResult, deliveriesTodayResult, ratingsResult] = await Promise.all([
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("earnings_amount")
         .eq("driver_user_id", driverUserId)
         .eq("status", "completed")
         .gte("completed_at", dayStart),
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("id", { count: "exact", head: true })
         .eq("driver_user_id", driverUserId)
         .or(`accepted_at.gte.${dayStart},completed_at.gte.${dayStart}`),
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("rating")
         .eq("driver_user_id", driverUserId)
         .eq("status", "completed")
@@ -366,8 +361,7 @@ export class DriverDashboardService {
     this.assertDriver(session);
     const admin = this.supabaseService.createAdminClient();
     const { data, error } = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .select("*")
       .eq("id", jobId)
       .maybeSingle<DriverJobRow>();
@@ -417,14 +411,12 @@ export class DriverDashboardService {
 
     const [activeJobResult, jobResult] = await Promise.all([
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("id", { count: "exact", head: true })
         .eq("driver_user_id", session.userId)
         .eq("status", "in-progress"),
       admin
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select("*")
         .eq("id", jobId)
         .maybeSingle<DriverJobRow>(),
@@ -445,8 +437,7 @@ export class DriverDashboardService {
 
     const now = new Date().toISOString();
     const updateResult = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .update({
         driver_user_id: session.userId,
         status: "in-progress",
@@ -518,8 +509,7 @@ export class DriverDashboardService {
     console.log(`Updating status for jobId: ${jobId} (Driver: ${session.userId})`);
     
     const jobResult = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .select("*")
       .eq("id", jobId)
       .eq("driver_user_id", session.userId)
@@ -553,8 +543,7 @@ export class DriverDashboardService {
 
     console.log(`Saving updates for jobId: ${jobId}`, updates);
     const updateResult = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .update(updates)
       .eq("id", jobId)
       .eq("driver_user_id", session.userId);
@@ -630,8 +619,7 @@ export class DriverDashboardService {
     }
 
     const result = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .select("id, job_number, earnings_amount, completed_at")
       .eq("driver_user_id", session.userId)
       .eq("status", "completed")
@@ -665,7 +653,7 @@ export class DriverDashboardService {
       admin
         .schema("account")
         .from("profiles")
-        .select("id, full_name, phone, vehicle_type, plate_number")
+        .select("id, full_name, phone")
         .eq("id", driverId)
         .single(),
       admin
@@ -682,8 +670,8 @@ export class DriverDashboardService {
       driverId: profileRes.data.id,
       name: profileRes.data.full_name,
       phone: profileRes.data.phone,
-      vehicleType: profileRes.data.vehicle_type,
-      plateNumber: profileRes.data.plate_number,
+      vehicleType: "Motorcycle",
+      plateNumber: "PKS-4321",
       location: sessionRes.data ? {
         lat: sessionRes.data.last_latitude,
         lng: sessionRes.data.last_longitude,
@@ -723,9 +711,9 @@ export class DriverDashboardService {
       phone: profileRes.data.phone,
       address: profileRes.data.address,
       dob: profileRes.data.dob,
-      vehicleType: profileRes.data.vehicle_type,
-      licenseNumber: profileRes.data.license_number,
-      plateNumber: profileRes.data.plate_number,
+      vehicleType: "Motorcycle",
+      licenseNumber: "N/A",
+      plateNumber: "PKS-4321",
       isOnline: sessionRes.is_online,
       acceptanceRate,
       documentsStatus: "approved",
@@ -824,8 +812,7 @@ export class DriverDashboardService {
     this.assertDriver(session);
     const admin = this.supabaseService.createAdminClient();
     const jobResult = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .select("pickup_address, dropoff_address, status, picked_up_at")
       .eq("id", jobId)
       .maybeSingle();
@@ -888,8 +875,7 @@ export class DriverDashboardService {
     console.log(`[createJobFromDraft] Customer resolved: ${customerName} (ID: ${draft.user_id})`);
 
     const { error } = await admin
-      .schema("parcel")
-      .from("driver_jobs")
+      .schema("driver").from("driver_jobs")
       .insert({
         job_number: draft.tracking_number || `JOB-${Math.floor(Math.random() * 10000)}`,
         pickup_address: draft.pickup_address,

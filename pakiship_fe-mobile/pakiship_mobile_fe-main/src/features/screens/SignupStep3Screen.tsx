@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Platform, Alert, Animated } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, MapPin, Camera, UploadCloud, CheckCircle2, HeartPulse } from 'lucide-react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -76,16 +77,81 @@ export default function SignupStep3Screen() {
   const [agreed, setAgreed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const toggleDoc = (key: keyof DocumentState) => {
-    // Mock the file pick logic
-    Alert.alert(
-      'Upload Document',
-      `Simulating document upload for ${key}...`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Simulate Upload', onPress: () => setDocs(prev => ({ ...prev, [key]: true })) }
-      ]
-    );
+  const toggleDoc = async (key: keyof DocumentState) => {
+    const labelMap: Record<string, string> = {
+      dl: "Driver's License",
+      orcr: "Vehicle OR/CR",
+      medical: "Medical Certificate",
+      dti: "DTI / SEC Certificate",
+      permit: "Business Permit",
+      location: "Proof of Location",
+      selfie: "Selfie with ID",
+    };
+
+    const docLabel = labelMap[key] || key;
+
+    const openCamera = async () => {
+      try {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Camera permission is required to take photos of documents.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.8,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          setDocs(prev => ({ ...prev, [key]: true }));
+        }
+      } catch (err) {
+        Alert.alert('Error', 'Failed to open camera.');
+        console.error(err);
+      }
+    };
+
+    const openGallery = async () => {
+      try {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Media library permission is required to upload documents.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.8,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          setDocs(prev => ({ ...prev, [key]: true }));
+        }
+      } catch (err) {
+        Alert.alert('Error', 'Failed to open gallery.');
+        console.error(err);
+      }
+    };
+
+    if (key === 'selfie') {
+      Alert.alert(
+        'Upload ' + docLabel,
+        `For identity verification, the Selfie with ID must be taken in real-time using your camera.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Camera', onPress: openCamera }
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Upload ' + docLabel,
+        `Choose how you would like to upload your ${docLabel}:`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Camera', onPress: openCamera },
+          { text: 'Open Gallery', onPress: openGallery }
+        ]
+      );
+    }
   };
 
   // Determine required documents based on role

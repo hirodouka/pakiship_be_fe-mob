@@ -295,8 +295,8 @@ const styles = StyleSheet.create({
   readyRow: { alignItems: "center", justifyContent: "center", gap: 14, paddingVertical: 16, marginTop: -8 },
   readyText: { fontSize: 13, fontWeight: "700", color: "rgba(43,169,155,0.22)", letterSpacing: 3 },
   
-  pageTitle: { fontSize: 26, fontWeight: "900", color: COLORS.text, textAlign: "center" },
-  pageSubtitle: { fontSize: 13, fontWeight: "400", color: COLORS.textSecondary, marginTop: 2, textAlign: "center", marginBottom: 20 },
+  pageTitle: { fontSize: 22, fontWeight: "900", color: COLORS.text, textAlign: "center" },
+  pageSubtitle: { fontSize: 12, fontWeight: "400", color: COLORS.textSecondary, marginTop: 2, textAlign: "center", marginBottom: 20 },
   goToInventoryBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   goToInventoryText: { fontSize: 15, fontWeight: "600", color: COLORS.white },
   

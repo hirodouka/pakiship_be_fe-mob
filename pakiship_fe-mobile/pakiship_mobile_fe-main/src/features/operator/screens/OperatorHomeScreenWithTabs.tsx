@@ -575,9 +575,9 @@ const styles = StyleSheet.create({
   readyText: { fontSize: 13, fontWeight: "900", color: "rgba(43,169,155,0.22)", letterSpacing: 3 },
   mascotImg: { position: "absolute", top: 0, width: 52, height: 52, zIndex: 1 },
 
-  titleSection: { alignItems: "center", marginBottom: 4 },
-  pageTitle: { fontSize: 26, fontWeight: "900", color: COLORS.text, textAlign: "center" },
-  pageSubtitle: { fontSize: 13, fontWeight: "400", color: COLORS.textSecondary, marginTop: 2, textAlign: "center" },
+  titleSection: { alignItems: "center", marginBottom: 10, marginTop: 8 },
+  pageTitle: { fontSize: 22, fontWeight: "900", color: COLORS.text, textAlign: "center" },
+  pageSubtitle: { fontSize: 12, fontWeight: "400", color: COLORS.textSecondary, marginTop: 2, textAlign: "center" },
   goToInventoryBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   goToInventoryText: { fontSize: 15, fontWeight: "700", color: COLORS.white },
 

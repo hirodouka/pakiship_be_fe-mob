@@ -253,8 +253,8 @@ export default function RateReview() {
             <ScrollView style={styles.historyList}>
               {loadingHistory ? (
                 <ActivityIndicator size="small" color="#39B5A8" style={{ marginTop: 20 }} />
-              ) : historyParcels.filter(p => p.status === 'Delivered').length > 0 ? (
-                historyParcels.filter(p => p.status === 'Delivered').map((p) => (
+              ) : historyParcels.filter(p => p.status && (p.status.toLowerCase().includes('delivered') || p.status.toLowerCase().includes('completed'))).length > 0 ? (
+                historyParcels.filter(p => p.status && (p.status.toLowerCase().includes('delivered') || p.status.toLowerCase().includes('completed'))).map((p) => (
                   <TouchableOpacity 
                     key={p.id} 
                     style={styles.historyItem} 

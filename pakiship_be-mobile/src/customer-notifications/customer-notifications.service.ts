@@ -49,22 +49,43 @@ export class CustomerNotificationsService {
     title: string,
     message: string,
   ) {
-    const admin = this.supabaseService.createAdminClient();
-    const { error } = await admin
-      .schema("account")
-      .from("customer_notifications")
-      .insert({
-        user_id: userId,
-        type,
-        title,
-        message,
-        is_read: false,
-      });
+    try {
+      const admin = this.supabaseService.createAdminClient();
+      
+      // 1. Insert into notifications.notifications table
+      const { error: err1 } = await admin
+        .schema("notifications")
+        .from("notifications")
+        .insert({
+          user_id: userId,
+          type,
+          title,
+          message,
+          is_read: false,
+          source_service: "pakiship",
+        });
 
-    if (error) {
-      console.error('--- NOTIFICATION ERROR (Ignored) ---');
-      console.error(error);
-      // We don't throw here anymore so it doesn't break the caller (like profile upload)
+      if (err1) {
+        console.error('--- NOTIFICATION ERROR (notifications.notifications) ---', err1.message);
+      }
+
+      // 2. Insert into account.customer_notifications table for backwards/cross-platform compatibility
+      const { error: err2 } = await admin
+        .schema("account")
+        .from("customer_notifications")
+        .insert({
+          user_id: userId,
+          type,
+          title,
+          message,
+          is_read: false,
+        });
+
+      if (err2) {
+        console.error('--- NOTIFICATION ERROR (account.customer_notifications) ---', err2.message);
+      }
+    } catch (e) {
+      console.error('Failed to create notification:', e);
     }
   }
 
@@ -72,8 +93,8 @@ export class CustomerNotificationsService {
     this.ensureCustomer(session);
     const admin = this.supabaseService.createAdminClient();
     const { data, error } = await admin
-      .schema("account")
-      .from("customer_notifications")
+      .schema("notifications")
+      .from("notifications")
       .select("id, type, title, message, is_read, created_at")
       .eq("user_id", session.userId)
       .order("created_at", { ascending: false })
@@ -86,8 +107,9 @@ export class CustomerNotificationsService {
     return {
       notifications: (data ?? []).map((item) => ({
         id: item.id,
-        type: item.type as NotificationType,
+        type: (item.type === "system" ? "security" : item.type) as any, // map system to security for lucide icons in frontend
         title: item.title,
+        desc: item.message, // Map message to desc expected by frontend NotificationModal
         message: item.message,
         time: formatRelativeTime(item.created_at),
         isRead: item.is_read,
@@ -100,8 +122,8 @@ export class CustomerNotificationsService {
     this.ensureCustomer(session);
     const admin = this.supabaseService.createAdminClient();
     const { error } = await admin
-      .schema("account")
-      .from("customer_notifications")
+      .schema("notifications")
+      .from("notifications")
       .update({ is_read: true })
       .eq("id", notificationId)
       .eq("user_id", session.userId);
@@ -117,8 +139,8 @@ export class CustomerNotificationsService {
     this.ensureCustomer(session);
     const admin = this.supabaseService.createAdminClient();
     const { error } = await admin
-      .schema("account")
-      .from("customer_notifications")
+      .schema("notifications")
+      .from("notifications")
       .update({ is_read: true })
       .eq("user_id", session.userId)
       .eq("is_read", false);
@@ -134,8 +156,8 @@ export class CustomerNotificationsService {
     this.ensureCustomer(session);
     const admin = this.supabaseService.createAdminClient();
     const { error } = await admin
-      .schema("account")
-      .from("customer_notifications")
+      .schema("notifications")
+      .from("notifications")
       .delete()
       .eq("user_id", session.userId);
 

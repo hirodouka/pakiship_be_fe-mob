@@ -1,0 +1,89 @@
+name: SDK Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node for GitHub Packages
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          scope: '@implementsprint'
+          registry-url: https://npm.pkg.github.com
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Guard GitHub Packages target
+        run: |
+          REGISTRY="$(node -p "require('./package.json').publishConfig.registry")"
+          if [ "$REGISTRY" != "https://npm.pkg.github.com" ]; then
+            echo "publishConfig.registry must be https://npm.pkg.github.com."
+            exit 1
+          fi
+
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          if [[ "$PACKAGE_NAME" != @implementsprint/* ]]; then
+            echo "Package name must use the @implementsprint scope."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release tag
+        run: npm run verify:release
+
+      - name: Validate SDK package
+        run: npm run ci
+
+      - name: Guard unpublished version
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://npm.pkg.github.com >/tmp/package-version.txt 2>/dev/null; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already published."
+            exit 1
+          fi
+
+          echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published yet."
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish package
+        run: npm publish --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          {
+            echo "## SDK published"
+            echo ""
+            echo "- Package: \`${PACKAGE_NAME}\`"
+            echo "- Version: \`${PACKAGE_VERSION}\`"
+            echo "- Registry: \`https://npm.pkg.github.com\`"
+          } >> "$GITHUB_STEP_SUMMARY"

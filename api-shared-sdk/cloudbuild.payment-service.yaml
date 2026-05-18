@@ -1,0 +1,15 @@
+substitutions:
+  _IMAGE: asia-southeast1-docker.pkg.dev/api-center-496422/api-center/shared-payment-service:manual
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}
+      - -f
+      - paymongo/Dockerfile
+      - .
+
+images:
+  - ${_IMAGE}

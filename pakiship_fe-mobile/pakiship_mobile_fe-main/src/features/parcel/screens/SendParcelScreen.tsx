@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, Dimensions, Pressable, LayoutChangeEvent,
-  ActivityIndicator,
+  ActivityIndicator, Linking
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
@@ -308,16 +308,31 @@ export default function SendParcel() {
         totalParcels: cartItems.reduce((s, i) => s + i.quantity, 0),
         distance: routeStats?.distance.toFixed(1) + ' km',
         duration: Math.ceil(routeStats?.duration || 0) + ' mins',
+        dropOffPoint: selectedDropOffPoint,
       });
 
-      setBookingConfirmationData({ 
-        trackingNumber: res.trackingNumber, 
-        senderName: 'Me', 
-        receiverName, 
-        servicePrice, 
-        totalCost: servicePrice 
-      });
-      setShowBookingConfirmation(true);
+      if (res.checkoutUrl) {
+        await Linking.openURL(res.checkoutUrl);
+        // Do not reset right away so the user can come back, or optionally show a "pending" message.
+        setBookingConfirmationData({ 
+          trackingNumber: res.trackingNumber, 
+          senderName: 'Me', 
+          receiverName, 
+          servicePrice, 
+          totalCost: servicePrice,
+          isPendingPayment: true
+        });
+        setShowBookingConfirmation(true);
+      } else {
+        setBookingConfirmationData({ 
+          trackingNumber: res.trackingNumber, 
+          senderName: 'Me', 
+          receiverName, 
+          servicePrice, 
+          totalCost: servicePrice 
+        });
+        setShowBookingConfirmation(true);
+      }
     } catch (error: any) {
       showError(error.message || 'Failed to complete booking.');
     }
@@ -725,7 +740,13 @@ export default function SendParcel() {
         onClose={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
         bookingDetails={bookingConfirmationData}
       />
-      <DropOffPointSelector isOpen={showDropOffSelector} onClose={() => setShowDropOffSelector(false)} onSelect={setSelectedDropOffPoint} />
+      <DropOffPointSelector 
+        isOpen={showDropOffSelector} 
+        onClose={() => setShowDropOffSelector(false)} 
+        onSelect={setSelectedDropOffPoint} 
+        pickupLat={pickupLocation?.lat}
+        pickupLng={pickupLocation?.lng}
+      />
     </View>
   );
 }

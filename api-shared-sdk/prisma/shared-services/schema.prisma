@@ -1,0 +1,577 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["shared_payment", "shared_otp", "shared_email", "shared_sms", "shared_geo", "shared_gauth"]
+}
+
+model PaymentCheckoutSession {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId             String    @map("tribe_id")
+  provider            String    @default("paymongo")
+  providerMode        String    @map("provider_mode")
+  checkoutId          String    @unique @map("checkout_id")
+  referenceId         String?   @map("reference_id")
+  status              String
+  amount              Int?
+  currency            String   @default("PHP")
+  redirectUrl         String?  @map("redirect_url")
+  successUrl          String?  @map("success_url")
+  cancelUrl           String?  @map("cancel_url")
+  description         String?
+  metadata            Json     @default("{}")
+  providerMetadata    Json     @default("{}") @map("provider_metadata")
+  expiresAt           DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  receipt   PaymentReceipt?
+  lineItems PaymentReceiptLineItem[]
+
+  @@index([tribeId, createdAt], name: "checkout_sessions_tribe_created_idx")
+  @@index([status, createdAt], name: "checkout_sessions_status_created_idx")
+  @@map("checkout_sessions")
+  @@schema("shared_payment")
+}
+
+model PaymentRecord {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId             String   @map("tribe_id")
+  provider            String   @default("paymongo")
+  providerMode        String   @map("provider_mode")
+  paymentId           String   @unique @map("payment_id")
+  checkoutId          String?  @map("checkout_id")
+  referenceId         String?  @map("reference_id")
+  status              String
+  amount              Int?
+  currency            String   @default("PHP")
+  paymentMethodType   String?  @map("payment_method_type")
+  providerMetadata    Json     @default("{}") @map("provider_metadata")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  refunds PaymentRefund[]
+
+  @@index([tribeId, createdAt], name: "payments_tribe_created_idx")
+  @@index([status, createdAt], name: "payments_status_created_idx")
+  @@map("payments")
+  @@schema("shared_payment")
+}
+
+model PaymentRefund {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paymentRowId  String?  @map("payment_row_id") @db.Uuid
+  tribeId       String   @map("tribe_id")
+  provider      String   @default("paymongo")
+  providerMode  String   @map("provider_mode")
+  refundId      String   @unique @map("refund_id")
+  paymentId     String   @map("payment_id")
+  status        String
+  amount        Int
+  currency      String   @default("PHP")
+  reason        String?
+  providerMetadata Json     @default("{}") @map("provider_metadata")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  payment PaymentRecord? @relation(fields: [paymentRowId], references: [id], onDelete: SetNull)
+
+  @@index([tribeId, createdAt], name: "refunds_tribe_created_idx")
+  @@index([paymentId], name: "refunds_payment_id_idx")
+  @@map("refunds")
+  @@schema("shared_payment")
+}
+
+model PaymentWebhookEvent {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String    @default("paymongo")
+  providerMode    String    @map("provider_mode")
+  providerEventId String    @map("provider_event_id")
+  eventType       String    @map("event_type")
+  status          String    @default("received")
+  payloadHash     String?   @map("payload_hash")
+  metadata        Json      @default("{}")
+  receivedAt      DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  errorMessage    String?   @map("error_message")
+
+  @@unique([provider, providerMode, providerEventId], name: "payment_webhook_provider_event")
+  @@index([eventType, receivedAt], name: "payment_webhook_type_received_idx")
+  @@map("payment_webhook_events")
+  @@schema("shared_payment")
+}
+
+model PaymentCustomer {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId          String   @map("tribe_id")
+  provider         String   @default("paymongo")
+  providerMode     String   @map("provider_mode")
+  customerId       String   @unique @map("customer_id")
+  email            String?
+  phone            String?
+  name             String?
+  metadata         Json     @default("{}")
+  providerMetadata Json     @default("{}") @map("provider_metadata")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscriptions PaymentSubscription[]
+  invoices      PaymentInvoice[]
+
+  @@index([tribeId, createdAt], name: "payment_customers_tribe_created_idx")
+  @@index([provider, providerMode, customerId], name: "payment_customers_provider_customer_idx")
+  @@map("customers")
+  @@schema("shared_payment")
+}
+
+model PaymentProduct {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId          String   @map("tribe_id")
+  productId        String   @unique @map("product_id")
+  name             String
+  description      String?
+  active           Boolean  @default(true)
+  metadata         Json     @default("{}")
+  providerMetadata Json     @default("{}") @map("provider_metadata")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  prices PaymentPrice[]
+
+  @@index([tribeId, active], name: "payment_products_tribe_active_idx")
+  @@map("products")
+  @@schema("shared_payment")
+}
+
+model PaymentPrice {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId                String   @map("tribe_id")
+  productRowId           String?  @map("product_row_id") @db.Uuid
+  priceId                String   @unique @map("price_id")
+  productId              String   @map("product_id")
+  amount                 Int?
+  currency               String   @default("PHP")
+  recurringInterval      String?  @map("recurring_interval")
+  recurringIntervalCount Int?     @map("recurring_interval_count")
+  trialPeriodDays        Int?     @map("trial_period_days")
+  active                 Boolean  @default(true)
+  metadata               Json     @default("{}")
+  providerMetadata       Json     @default("{}") @map("provider_metadata")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  product       PaymentProduct? @relation(fields: [productRowId], references: [id], onDelete: SetNull)
+  subscriptions PaymentSubscription[]
+
+  @@index([tribeId, productId], name: "payment_prices_tribe_product_idx")
+  @@index([tribeId, active], name: "payment_prices_tribe_active_idx")
+  @@map("prices")
+  @@schema("shared_payment")
+}
+
+model PaymentSubscription {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId           String   @map("tribe_id")
+  customerRowId     String?  @map("customer_row_id") @db.Uuid
+  priceRowId        String?  @map("price_row_id") @db.Uuid
+  provider          String   @default("paymongo")
+  providerMode      String   @map("provider_mode")
+  subscriptionId    String   @unique @map("subscription_id")
+  referenceId       String?  @map("reference_id")
+  customerId        String   @map("customer_id")
+  priceId           String   @map("price_id")
+  status            String
+  currentPeriodStart DateTime? @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd DateTime? @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd Boolean  @default(false) @map("cancel_at_period_end")
+  latestInvoiceId   String?  @map("latest_invoice_id")
+  latestPaymentId   String?  @map("latest_payment_id")
+  metadata          Json     @default("{}")
+  providerMetadata  Json     @default("{}") @map("provider_metadata")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  customer PaymentCustomer? @relation(fields: [customerRowId], references: [id], onDelete: SetNull)
+  price    PaymentPrice?    @relation(fields: [priceRowId], references: [id], onDelete: SetNull)
+  invoices PaymentInvoice[]
+
+  @@unique([tribeId, referenceId], name: "payment_subscriptions_tribe_reference_key")
+  @@index([tribeId, status, createdAt], name: "payment_subscriptions_tribe_status_created_idx")
+  @@index([customerId], name: "payment_subscriptions_customer_id_idx")
+  @@map("subscriptions")
+  @@schema("shared_payment")
+}
+
+model PaymentSubscriptionEvent {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String    @default("paymongo")
+  providerMode    String    @map("provider_mode")
+  providerEventId String    @map("provider_event_id")
+  subscriptionId  String?   @map("subscription_id")
+  eventType       String    @map("event_type")
+  status          String    @default("received")
+  metadata        Json      @default("{}")
+  receivedAt      DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  errorMessage    String?   @map("error_message")
+
+  @@unique([provider, providerMode, providerEventId], name: "subscription_events_provider_event")
+  @@index([subscriptionId, receivedAt], name: "subscription_events_subscription_received_idx")
+  @@index([eventType, receivedAt], name: "subscription_events_type_received_idx")
+  @@map("subscription_events")
+  @@schema("shared_payment")
+}
+
+model PaymentInvoice {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId          String   @map("tribe_id")
+  subscriptionRowId String? @map("subscription_row_id") @db.Uuid
+  customerRowId    String?  @map("customer_row_id") @db.Uuid
+  provider         String   @default("paymongo")
+  providerMode     String   @map("provider_mode")
+  invoiceId        String   @unique @map("invoice_id")
+  subscriptionId   String?  @map("subscription_id")
+  customerId       String?  @map("customer_id")
+  status           String
+  amountDue        Int?     @map("amount_due")
+  amountPaid       Int?     @map("amount_paid")
+  currency         String   @default("PHP")
+  dueAt            DateTime? @map("due_at") @db.Timestamptz(6)
+  paidAt           DateTime? @map("paid_at") @db.Timestamptz(6)
+  metadata         Json     @default("{}")
+  providerMetadata Json     @default("{}") @map("provider_metadata")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscription PaymentSubscription? @relation(fields: [subscriptionRowId], references: [id], onDelete: SetNull)
+  customer     PaymentCustomer?     @relation(fields: [customerRowId], references: [id], onDelete: SetNull)
+  lineItems    PaymentInvoiceLineItem[]
+
+  @@index([tribeId, createdAt], name: "payment_invoices_tribe_created_idx")
+  @@index([subscriptionId, createdAt], name: "payment_invoices_subscription_created_idx")
+  @@map("invoices")
+  @@schema("shared_payment")
+}
+
+model PaymentInvoiceLineItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  name        String
+  description String?
+  quantity    Int      @default(1)
+  amount      Int
+  currency    String   @default("PHP")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  invoice PaymentInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId], name: "invoice_line_items_invoice_idx")
+  @@map("invoice_line_items")
+  @@schema("shared_payment")
+}
+
+model PaymentReceipt {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  checkoutSessionId String?  @unique @map("checkout_session_id") @db.Uuid
+  tribeId           String   @map("tribe_id")
+  receiptNumber     String?  @unique @map("receipt_number")
+  referenceId       String?  @map("reference_id")
+  status            String   @default("issued")
+  subtotal          Int?
+  total             Int
+  currency          String   @default("PHP")
+  issuedAt          DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  checkoutSession PaymentCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  lineItems       PaymentReceiptLineItem[]
+
+  @@index([tribeId, issuedAt], name: "receipts_tribe_issued_idx")
+  @@map("receipts")
+  @@schema("shared_payment")
+}
+
+model PaymentReceiptLineItem {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  receiptId         String?  @map("receipt_id") @db.Uuid
+  checkoutSessionId String?  @map("checkout_session_id") @db.Uuid
+  name              String
+  description       String?
+  quantity          Int      @default(1)
+  amount            Int
+  currency          String   @default("PHP")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  receipt         PaymentReceipt?         @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  checkoutSession PaymentCheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId], name: "receipt_line_items_receipt_idx")
+  @@index([checkoutSessionId], name: "receipt_line_items_checkout_idx")
+  @@map("receipt_line_items")
+  @@schema("shared_payment")
+}
+
+model OtpChallenge {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId           String    @map("tribe_id")
+  otpId             String    @unique @map("otp_id")
+  channel           String
+  targetHash        String    @map("target_hash")
+  otpHash           String?   @map("otp_hash")
+  status            String    @default("pending")
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz(6)
+  metadata          Json      @default("{}")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attempts OtpAttempt[]
+  deliveries OtpDeliveryEvent[]
+
+  @@index([tribeId, createdAt], name: "otp_challenges_tribe_created_idx")
+  @@index([status, expiresAt], name: "otp_challenges_status_expires_idx")
+  @@map("otp_challenges")
+  @@schema("shared_otp")
+}
+
+model OtpAttempt {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  challengeId String  @map("challenge_id") @db.Uuid
+  success     Boolean  @default(false)
+  failureCode String?  @map("failure_code")
+  attemptedAt DateTime @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  metadata    Json     @default("{}")
+
+  challenge OtpChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId, attemptedAt], name: "otp_attempts_challenge_attempted_idx")
+  @@map("otp_attempts")
+  @@schema("shared_otp")
+}
+
+model OtpDeliveryEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  challengeId  String   @map("challenge_id") @db.Uuid
+  provider     String?
+  providerId   String?  @map("provider_id")
+  channel      String
+  status       String
+  errorMessage String?  @map("error_message")
+  sentAt       DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+  metadata     Json     @default("{}")
+
+  challenge OtpChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId, sentAt], name: "otp_delivery_challenge_sent_idx")
+  @@map("otp_delivery_events")
+  @@schema("shared_otp")
+}
+
+model EmailMessage {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId         String    @map("tribe_id")
+  provider        String    @default("resend")
+  providerMessageId String? @unique @map("provider_message_id")
+  templateId      String?   @map("template_id") @db.Uuid
+  recipientHash   String    @map("recipient_hash")
+  subject         String?
+  status          String
+  metadata        Json      @default("{}")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  template EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  events   EmailDeliveryEvent[]
+
+  @@index([tribeId, createdAt], name: "email_messages_tribe_created_idx")
+  @@index([status, createdAt], name: "email_messages_status_created_idx")
+  @@map("email_messages")
+  @@schema("shared_email")
+}
+
+model EmailTemplate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId     String   @map("tribe_id")
+  key         String
+  name        String
+  description String?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  messages EmailMessage[]
+
+  @@unique([tribeId, key], name: "email_templates_tribe_key")
+  @@map("email_templates")
+  @@schema("shared_email")
+}
+
+model EmailDeliveryEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId    String   @map("message_id") @db.Uuid
+  provider     String   @default("resend")
+  providerId   String?  @map("provider_id")
+  eventType    String   @map("event_type")
+  status       String
+  errorMessage String?  @map("error_message")
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  metadata     Json     @default("{}")
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, occurredAt], name: "email_delivery_message_occurred_idx")
+  @@map("email_delivery_events")
+  @@schema("shared_email")
+}
+
+model SmsMessage {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId           String    @map("tribe_id")
+  provider          String?
+  providerMessageId String?   @unique @map("provider_message_id")
+  recipientHash     String    @map("recipient_hash")
+  messageHash       String?   @map("message_hash")
+  status            String
+  metadata          Json      @default("{}")
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events SmsDeliveryEvent[]
+
+  @@index([tribeId, createdAt], name: "sms_messages_tribe_created_idx")
+  @@index([status, createdAt], name: "sms_messages_status_created_idx")
+  @@map("sms_messages")
+  @@schema("shared_sms")
+}
+
+model SmsDeliveryEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId    String   @map("message_id") @db.Uuid
+  provider     String?
+  providerId   String?  @map("provider_id")
+  eventType    String   @map("event_type")
+  status       String
+  errorMessage String?  @map("error_message")
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  metadata     Json     @default("{}")
+
+  message SmsMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, occurredAt], name: "sms_delivery_message_occurred_idx")
+  @@map("sms_delivery_events")
+  @@schema("shared_sms")
+}
+
+model GeocodeRequest {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId       String   @map("tribe_id")
+  requestHash   String   @unique @map("request_hash")
+  provider      String   @default("google_maps")
+  queryType     String   @map("query_type")
+  queryHash     String   @map("query_hash")
+  status        String
+  resultPlaceId String?  @map("result_place_id")
+  resultJson    Json?    @map("result_json")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tribeId, createdAt], name: "geocode_requests_tribe_created_idx")
+  @@map("geocode_requests")
+  @@schema("shared_geo")
+}
+
+model NormalizedLocation {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String   @default("google_maps")
+  providerPlaceId String?  @unique @map("provider_place_id")
+  addressHash     String   @unique @map("address_hash")
+  formattedAddress String? @map("formatted_address")
+  countryCode     String?  @map("country_code")
+  region          String?
+  locality        String?
+  latitude        Decimal? @db.Decimal(10, 7)
+  longitude       Decimal? @db.Decimal(10, 7)
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([countryCode, region], name: "normalized_locations_country_region_idx")
+  @@map("normalized_locations")
+  @@schema("shared_geo")
+}
+
+model GeofenceCheck {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId     String   @map("tribe_id")
+  requestHash String   @unique @map("request_hash")
+  locationHash String  @map("location_hash")
+  geofenceKey String   @map("geofence_key")
+  matched     Boolean
+  distanceMeters Decimal? @map("distance_meters") @db.Decimal(12, 2)
+  metadata    Json     @default("{}")
+  checkedAt   DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  @@index([tribeId, checkedAt], name: "geofence_checks_tribe_checked_idx")
+  @@index([geofenceKey, matched], name: "geofence_checks_key_matched_idx")
+  @@map("geofence_checks")
+  @@schema("shared_geo")
+}
+
+model GauthOAuthSession {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId     String    @map("tribe_id")
+  stateHash   String    @unique @map("state_hash")
+  status      String    @default("pending")
+  scopes      Json      @default("[]")
+  redirectUri String?   @map("redirect_uri")
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tribeId, createdAt], name: "oauth_sessions_tribe_created_idx")
+  @@index([status, expiresAt], name: "oauth_sessions_status_expires_idx")
+  @@map("oauth_sessions")
+  @@schema("shared_gauth")
+}
+
+model GauthOAuthAccount {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tribeId           String   @map("tribe_id")
+  provider          String   @default("google")
+  providerAccountId String   @map("provider_account_id")
+  emailHash         String?  @map("email_hash")
+  displayName       String?  @map("display_name")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tokenRefs GauthOAuthTokenRef[]
+
+  @@unique([tribeId, provider, providerAccountId], name: "oauth_accounts_tribe_provider_account")
+  @@index([tribeId, createdAt], name: "oauth_accounts_tribe_created_idx")
+  @@map("oauth_accounts")
+  @@schema("shared_gauth")
+}
+
+model GauthOAuthTokenRef {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId       String    @map("account_id") @db.Uuid
+  tokenRef        String    @map("token_ref")
+  tokenType       String    @map("token_type")
+  scopes          Json      @default("[]")
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+  status          String    @default("active")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account GauthOAuthAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, tokenType], name: "oauth_token_refs_account_type")
+  @@map("oauth_token_refs")
+  @@schema("shared_gauth")
+}

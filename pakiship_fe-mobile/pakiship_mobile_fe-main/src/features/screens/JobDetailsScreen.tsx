@@ -74,6 +74,9 @@ export default function JobDetailsScreen() {
         earnings: res.earnings,
         customer: res.customerName || 'Customer',
         customerPhone: res.customerPhone || '',
+        customerAvatar: res.customerAvatar || null,
+        receiverName: res.receiverName || 'Recipient',
+        receiverPhone: res.receiverPhone || '',
         eta: res.timeLimit || 'TBD',
         packageDescription: res.packageDescription || 'Standard Parcel',
         specialInstructions: res.specialInstructions || 'None',
@@ -245,9 +248,12 @@ export default function JobDetailsScreen() {
           </View>
 
           <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="navigation-variant-outline" size={17} color={palette.primary} />
-              <Text style={styles.sectionTitle}>Route</Text>
+            <View style={[styles.sectionHeader, { flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%" }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <MaterialCommunityIcons name="navigation-variant-outline" size={17} color={palette.primary} />
+                <Text style={styles.sectionTitle}>Route</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: "800", color: palette.primary }}>{job.distance}</Text>
             </View>
 
             <View style={styles.routeStop}>
@@ -260,9 +266,24 @@ export default function JobDetailsScreen() {
               </View>
             </View>
 
-            <View style={styles.routeDividerWrap}>
-              <View style={styles.routeDivider} />
-              <Text style={styles.routeDistance}>{job.distance}</Text>
+            <View style={{ width: 34, paddingLeft: 16, marginTop: -16, marginBottom: 4 }}>
+              <View style={{ width: 1.5, height: 42, backgroundColor: '#CFE9E6' }} />
+              <View style={{
+                position: 'absolute',
+                left: 5,
+                top: '50%',
+                marginTop: -12,
+                backgroundColor: '#E2F7F4',
+                borderRadius: 12,
+                width: 24,
+                height: 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: '#B2EBE3',
+              }}>
+                <MaterialCommunityIcons name="arrow-down" size={13} color={palette.primary} />
+              </View>
             </View>
 
             <View style={styles.routeStop}>
@@ -279,22 +300,65 @@ export default function JobDetailsScreen() {
           <View style={styles.card}>
             <View style={styles.sectionHeader}>
               <MaterialCommunityIcons name="account-outline" size={17} color={palette.primary} />
-              <Text style={styles.sectionTitle}>Customer</Text>
+              <Text style={styles.sectionTitle}>Customer & Recipient</Text>
             </View>
 
+            {/* Sender / Customer Section */}
             <View style={styles.customerRow}>
               <View style={styles.customerMetaRow}>
                 <View style={styles.customerAvatar}>
-                  <Text style={styles.customerAvatarText}>{job.customer.charAt(0)}</Text>
+                  {job.customerAvatar ? (
+                    <Image source={{ uri: job.customerAvatar }} style={styles.customerAvatarImage} />
+                  ) : (
+                    <Text style={styles.customerAvatarText}>{job.customer.charAt(0)}</Text>
+                  )}
                 </View>
                 <View>
                   <Text style={styles.customerName}>{job.customer}</Text>
                   {job.customerPhone ? <Text style={styles.customerPhone}>{job.customerPhone}</Text> : null}
+                  <Text style={styles.roleLabelText}>SENDER / BOOKED BY</Text>
                 </View>
               </View>
 
               <View style={styles.customerActions}>
                 <Pressable style={styles.customerCallButton} onPress={() => setShowCallModal(true)}>
+                  <MaterialCommunityIcons name="phone-outline" size={18} color={palette.card} />
+                </Pressable>
+                <Pressable style={styles.customerMessageButton}>
+                  <MaterialCommunityIcons name="message-text-outline" size={18} color="#8593A8" />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Connecting Flow Indicator (Arrow pointing down) */}
+            <View style={styles.flowDividerRow}>
+              <View style={styles.flowDividerLineContainer}>
+                <View style={styles.flowDividerLine} />
+                <View style={styles.flowDividerArrowBox}>
+                  <MaterialCommunityIcons name="arrow-down" size={14} color={palette.primary} />
+                </View>
+                <View style={styles.flowDividerLine} />
+              </View>
+            </View>
+
+            {/* Recipient / Receiver Section */}
+            <View style={styles.customerRow}>
+              <View style={styles.customerMetaRow}>
+                <View style={[styles.customerAvatar, { backgroundColor: palette.danger }]}>
+                  <Text style={styles.customerAvatarText}>{job.receiverName.charAt(0)}</Text>
+                </View>
+                <View>
+                  <Text style={styles.customerName}>{job.receiverName}</Text>
+                  {job.receiverPhone ? <Text style={styles.customerPhone}>{job.receiverPhone}</Text> : null}
+                  <Text style={[styles.roleLabelText, { color: palette.danger }]}>RECIPIENT</Text>
+                </View>
+              </View>
+
+              <View style={styles.customerActions}>
+                <Pressable 
+                  style={[styles.customerCallButton, { backgroundColor: palette.danger }]} 
+                  onPress={() => Linking.openURL(`tel:${job.receiverPhone}`)}
+                >
                   <MaterialCommunityIcons name="phone-outline" size={18} color={palette.card} />
                 </Pressable>
                 <Pressable style={styles.customerMessageButton}>
@@ -1258,5 +1322,41 @@ const styles = StyleSheet.create({
     color: palette.card,
     fontSize: 16,
     fontWeight: '800',
+  },
+  customerAvatarImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  roleLabelText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: palette.primary,
+    letterSpacing: 0.8,
+    marginTop: 2,
+  },
+  flowDividerRow: {
+    alignItems: 'flex-start',
+    marginVertical: 4,
+  },
+  flowDividerLineContainer: {
+    width: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flowDividerLine: {
+    width: 2,
+    height: 10,
+    backgroundColor: '#E2E8F0',
+  },
+  flowDividerArrowBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#E6F7F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#BFECE8',
   },
 });

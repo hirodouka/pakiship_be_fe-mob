@@ -45,7 +45,7 @@ export class ParcelMobileController {
   }
 
   @Patch(":id/cancel")
-  cancelParcel(@Req() request: Request, @Param("id") id: string, @Body() body: Record<string, unknown>) {
-    return { status: "cancelled" };
+  cancelParcel(@Req() request: Request, @Param("id") id: string) {
+    return this.parcelDraftsService.cancelBooking(getSessionUser(request), id);
   }
 }

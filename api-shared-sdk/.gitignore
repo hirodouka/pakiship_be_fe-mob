@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+supabase/.temp/
+.env
+.env.*
+!.env.example
+shared-services/**/.env
+shared-services/**/.env.*

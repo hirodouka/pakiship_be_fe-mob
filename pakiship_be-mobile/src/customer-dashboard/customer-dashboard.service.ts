@@ -225,25 +225,24 @@ export class CustomerDashboardService {
     const ownedBooking = await admin
       .schema("parcel")
       .from("parcel_drafts")
-      .select("id")
-      .eq("user_id", session.userId)
-      .eq("tracking_number", trackingNumber)
-      .eq("status", "submitted")
-      .maybeSingle();
+      .select("id, assigned_driver_id").eq("user_id", session.userId).eq("tracking_number", trackingNumber).eq("status", "submitted").maybeSingle() as any;
 
     if (ownedBooking.error || !ownedBooking.data) {
       throw new BadRequestException("Tracking number not found in your completed bookings.");
     }
 
     const insertResult = await admin
-      .schema("account")
-      .from("customer_reviews")
+      .schema("parcel")
+      .from("parcel_reviews")
       .insert({
-        user_id: session.userId,
+        parcel_draft_id: ownedBooking.data.id,
         tracking_number: trackingNumber,
+        customer_user_id: session.userId,
         rating,
         review_text: review || null,
         tags,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .select("id, tracking_number, rating, review_text, tags, created_at")
       .single();
@@ -252,9 +251,18 @@ export class CustomerDashboardService {
       throw new InternalServerErrorException("Unable to submit your review right now.");
     }
 
+    // Update driver_jobs rating if a driver was assigned
+    if (ownedBooking.data.assigned_driver_id) {
+      await admin
+        .schema("driver")
+        .from("driver_jobs")
+        .update({ rating })
+        .eq("parcel_draft_id", ownedBooking.data.id)
+        .eq("driver_user_id", ownedBooking.data.assigned_driver_id);
+    }
+
     await admin
-      .schema("account")
-      .from("customer_activity_logs")
+      .schema("parcel").from("parcel_activity_logs")
       .insert({
       user_id: session.userId,
       activity_type: "review",
@@ -287,10 +295,7 @@ export class CustomerDashboardService {
     const limit = Math.min(Math.max(Number(limitInput) || 5, 1), 20);
     const admin = this.supabaseService.createAdminClient();
     const result = await admin
-      .schema("account")
-      .from("customer_reviews")
-      .select("id, tracking_number, rating, review_text, tags, created_at")
-      .eq("user_id", session.userId)
+      .schema("parcel").from("parcel_reviews").select("id, tracking_number, rating, review_text, tags, created_at").eq("customer_user_id", session.userId)
       .order("created_at", { ascending: false })
       .limit(limit);
 

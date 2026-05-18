@@ -66,7 +66,7 @@ function InputField({
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { clearCurrentUser } = useAuthSession();
+  const { currentUser, clearCurrentUser } = useAuthSession();
   const insets = useSafeAreaInsets();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -81,14 +81,16 @@ export default function ProfileScreen() {
       .then((res: any) => {
         if (res?.profilePicture) setAvatarUri(res.profilePicture);
         if (res?.fullName) setFullName(res.fullName);
+        if (res?.email) setEmail(res.email);
+        if (res?.phone) setPhone(res.phone);
       })
       .catch(() => {/* silently ignore — use defaults */});
   }, []);
   
   const [activeTab, setActiveTab] = useState<"profile" | "compliance" | "preferences">("profile");
-  const [fullName, setFullName] = useState("Juan Dela Cruz");
-  const [email] = useState("juandelacruz@pakiship.ph");
-  const [phone, setPhone] = useState("09123456789");
+  const [fullName, setFullName] = useState(currentUser?.name || "");
+  const [email, setEmail] = useState(currentUser?.email || "");
+  const [phone, setPhone] = useState("");
   const [twoFA, setTwoFA] = useState(false);
   const [prefToggles, setPrefToggles] = useState({ email: true, sms: true, parcel: true });
   const [show2FAModal, setShow2FAModal] = useState(false);
@@ -386,7 +388,7 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri
                 ? <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
-                : <Text style={styles.avatarText}>OP</Text>
+                : <Text style={styles.avatarText}>{fullName ? fullName.charAt(0).toUpperCase() : "OP"}</Text>
               }
             </View>
             <TouchableOpacity style={styles.cameraBadge} onPress={() => pickImage(setAvatarUri)}>
@@ -394,7 +396,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>User</Text>
+            <Text style={styles.userName}>{fullName}</Text>
             <Text style={styles.userRole}>Operator Account</Text>
           </View>
         </View>
@@ -445,6 +447,7 @@ export default function ProfileScreen() {
             <InputField
               label="EMAIL ADDRESS"
               value={email}
+              onChangeText={setEmail}
               icon={<Feather name="mail" size={16} color={COLORS.primary} />}
               editable={true}
               keyboardType="email-address"
@@ -671,7 +674,7 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "900",
     color: COLORS.text,
     textAlign: "center",
   },

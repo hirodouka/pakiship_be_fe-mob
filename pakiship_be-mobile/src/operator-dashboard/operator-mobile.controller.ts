@@ -136,24 +136,18 @@ export class OperatorMobileController {
     const dashboard = await this.operatorDashboardService.getDashboard(session);
 
     const admin = this.supabaseService.createAdminClient();
-    const { data: assignment } = await admin
-      .schema("parcel")
-      .from("operator_hub_assignments")
-      .select("hub_id")
-      .eq("operator_user_id", session.userId)
-      .eq("is_active", true)
-      .maybeSingle();
+    const hubId = dashboard.meta.hubId;
 
     let hubName = "Unassigned Hub";
     let hubAddress = null;
     let maxCapacity = 100;
 
-    if (assignment?.hub_id) {
+    if (hubId) {
       const { data: hub } = await admin
         .schema("parcel")
         .from("drop_off_points")
         .select("name, address, max_capacity")
-        .eq("id", assignment.hub_id)
+        .eq("id", hubId)
         .maybeSingle();
       
       if (hub) {
@@ -167,7 +161,7 @@ export class OperatorMobileController {
     const capacityPct = Math.min(100, Math.round((currentStored / maxCapacity) * 100));
 
     return {
-      hubId: assignment?.hub_id ?? null,
+      hubId,
       hubName,
       hubAddress: hubAddress || "Taguig City, Metro Manila",
       capacityPercentage: capacityPct,
@@ -185,22 +179,14 @@ export class OperatorMobileController {
   async getProfile(@Req() request: Request) {
     const session = getSessionUser(request);
     const admin = this.supabaseService.createAdminClient();
+    const hubId = await this.operatorDashboardService.getActiveHubId(session).catch(() => null);
 
-    const [profileResult, assignmentResult] = await Promise.all([
-      admin
-        .schema("account")
-        .from("profiles")
-        .select("id, full_name, email, phone, profile_picture")
-        .eq("id", session.userId)
-        .single(),
-      admin
-        .schema("parcel")
-        .from("operator_hub_assignments")
-        .select("hub_id, drop_off_points(name, address)")
-        .eq("operator_user_id", session.userId)
-        .eq("is_active", true)
-        .maybeSingle<any>(),
-    ]);
+    const profileResult = await admin
+      .schema("account")
+      .from("profiles")
+      .select("id, full_name, email, phone, profile_picture")
+      .eq("id", session.userId)
+      .single();
 
     if (profileResult.error || !profileResult.data) {
       throw new InternalServerErrorException("Unable to load operator profile.");
@@ -209,12 +195,12 @@ export class OperatorMobileController {
     const profile = profileResult.data;
     let assignedHub = null;
 
-    if (assignmentResult.data?.hub_id) {
+    if (hubId) {
       const { data: hubData } = await admin
         .schema("parcel")
         .from("drop_off_points")
         .select("id, name, address")
-        .eq("id", assignmentResult.data.hub_id)
+        .eq("id", hubId)
         .maybeSingle();
       
       if (hubData) {

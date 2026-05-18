@@ -9,6 +9,7 @@ import { ParcelDraftsRepository } from "./parcel-drafts.repository";
 import { DriverDashboardModule } from "../driver-dashboard/driver-dashboard.module";
 import { GoogleMapsModule } from "../google-maps/google-maps.module";
 import { DropOffPointsModule } from "../drop-off-points/drop-off-points.module";
+import { PaymentModule } from "../payment/payment.module";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DropOffPointsModule } from "../drop-off-points/drop-off-points.module";
     forwardRef(() => DriverDashboardModule),
     GoogleMapsModule,
     DropOffPointsModule,
+    PaymentModule,
   ],
   controllers: [ParcelDraftsController, ParcelMobileController, TrackingController],
   providers: [ParcelDraftsService, ParcelDraftsRepository],

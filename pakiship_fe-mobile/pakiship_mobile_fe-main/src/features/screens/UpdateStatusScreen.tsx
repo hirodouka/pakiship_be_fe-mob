@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { 
-  ArrowLeft, MapPin, Clock, CheckCircle2, Truck, RefreshCw, Package 
+  ArrowLeft, MapPin, Clock, CheckCircle2, Truck, RefreshCw, Package, ArrowDown
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useJobs } from "../context/JobsContext";
@@ -28,6 +28,7 @@ const statusOptions = [
     description: "Package has been collected from the sender.",
     icon: <Package size={20} />,
     color: "text-blue-700",
+    iconColor: "#1d4ed8",
     bg: "bg-blue-50",
     border: "border-blue-200",
     dot: "bg-blue-600",
@@ -38,6 +39,7 @@ const statusOptions = [
     description: "Package is on the way to the recipient.",
     icon: <Truck size={20} />,
     color: "text-[#39B5A8]",
+    iconColor: "#39B5A8",
     bg: "bg-[#F0F9F8]",
     border: "border-[#39B5A8]/30",
     dot: "bg-[#39B5A8]",
@@ -48,6 +50,7 @@ const statusOptions = [
     description: "Package has been successfully delivered.",
     icon: <CheckCircle2 size={20} />,
     color: "text-green-700",
+    iconColor: "#15803d",
     bg: "bg-green-50",
     border: "border-green-200",
     dot: "bg-green-600",
@@ -160,8 +163,8 @@ export default function UpdateStatusScreen() {
                <Text className="text-[#041614] font-bold text-sm" numberOfLines={1}>{job.pickup}</Text>
              </View>
           </View>
-          <View className="flex-row items-center gap-3 pl-4 my-1">
-             <View className="w-0.5 h-6 bg-gray-200 ml-0.5" />
+          <View style={{ width: 32, alignItems: 'center', justifyContent: 'center', marginVertical: 2 }}>
+             <View style={{ width: 1.5, height: 24, backgroundColor: '#E2E8F0' }} />
           </View>
           <View className="flex-row items-start gap-3">
              <View className="w-8 h-8 rounded-full bg-red-400 items-center justify-center">
@@ -181,33 +184,37 @@ export default function UpdateStatusScreen() {
             <Text className="text-sm font-black text-[#041614]">Select New Status</Text>
           </View>
           
-          <View className="space-y-3">
+          <View>
             {statusOptions.map(option => {
-              const isSelected = selectedStatus === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  onPress={() => setSelectedStatus(option.value)}
-                  className={`w-full flex-row items-center gap-4 p-4 rounded-2xl border-2 ${
-                    isSelected ? `${option.bg} ${option.border}` : "bg-white border-gray-100"
-                  }`}
-                >
-                  <View className={`w-10 h-10 rounded-full items-center justify-center border ${
-                    isSelected ? `${option.bg} ${option.border}` : "bg-gray-100 border-gray-200"
-                  }`}>
-                    {cloneElement(option.icon, { className: isSelected ? option.color : "text-gray-400" })}
-                  </View>
-                  <View className="flex-1">
-                    <Text className={`font-black text-sm ${isSelected ? option.color : "text-gray-600"}`}>{option.label}</Text>
-                    <Text className={`text-[10px] mt-0.5 ${isSelected ? "opacity-80" : "text-gray-400"}`}>{option.description}</Text>
-                  </View>
-                  <View className={`w-5 h-5 rounded-full border-2 items-center justify-center ${
-                    isSelected ? `${option.border} bg-white` : "border-gray-300"
-                  }`}>
-                    {isSelected && <View className={`w-2.5 h-2.5 rounded-full ${option.dot}`} />}
-                  </View>
-                </TouchableOpacity>
-              );
+               const isSelected = selectedStatus === option.value;
+               return (
+                 <TouchableOpacity
+                   key={option.value}
+                   onPress={() => setSelectedStatus(option.value)}
+                   style={{ width: "100%", alignSelf: "stretch", marginBottom: 12 }}
+                   className={`flex-row items-center p-4 rounded-2xl border-2 ${
+                     isSelected ? `${option.bg} ${option.border}` : "bg-white border-gray-200"
+                   }`}
+                 >
+                   <View 
+                     style={{ marginRight: 16 }}
+                     className={`w-10 h-10 rounded-full items-center justify-center border ${
+                       isSelected ? `${option.bg} ${option.border}` : "bg-slate-50 border-gray-200"
+                     }`}
+                   >
+                     {cloneElement(option.icon, { color: isSelected ? option.iconColor : "#9CA3AF" })}
+                   </View>
+                   <View className="flex-1" style={{ marginRight: 16 }}>
+                     <Text className={`font-black text-sm ${isSelected ? option.color : "text-gray-600"}`}>{option.label}</Text>
+                     <Text className={`text-[10px] mt-0.5 ${isSelected ? "opacity-80" : "text-gray-400"}`}>{option.description}</Text>
+                   </View>
+                   <View className={`w-5 h-5 rounded-full border-2 items-center justify-center ${
+                     isSelected ? `${option.border} bg-white` : "border-gray-300"
+                   }`}>
+                     {isSelected && <View className={`w-2.5 h-2.5 rounded-full ${option.dot}`} />}
+                   </View>
+                 </TouchableOpacity>
+               );
             })}
           </View>
         </View>

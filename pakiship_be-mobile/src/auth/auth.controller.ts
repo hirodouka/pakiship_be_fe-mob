@@ -168,6 +168,25 @@ export class AuthController {
     return this.authService.sendPasswordReset(role, identifier, derivedOrigin);
   }
 
+  @Post("reset-password/otp")
+  async resetPasswordWithOtp(@Body() body: Record<string, unknown>) {
+    const identifier = String(body.identifier ?? body.email ?? "");
+    const code = String(body.code ?? "");
+    const newPassword = String(body.newPassword ?? "");
+    const otpId = body.otpId ? String(body.otpId) : undefined;
+
+    if (!identifier) {
+      throw new BadRequestException("Identifier or email is required.");
+    }
+
+    return this.authService.resetPasswordWithOtp({
+      identifier,
+      code,
+      newPassword,
+      otpId,
+    });
+  }
+
   @Post("change-password")
   @UseGuards(SessionAuthGuard)
   changePassword(@Req() request: Request, @Body() body: Record<string, unknown>) {

@@ -14,6 +14,7 @@ import { SupabaseModule } from "./supabase/supabase.module";
 import { OperatorDashboardModule } from "./operator-dashboard/operator-dashboard.module";
 
 import { GoogleMapsModule } from "./google-maps/google-maps.module";
+import { PaymentModule } from "./payment/payment.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { GoogleMapsModule } from "./google-maps/google-maps.module";
     ProfileModule,
     SettingsModule,
     GoogleMapsModule,
+    PaymentModule,
   ],
 })
 export class AppModule {}

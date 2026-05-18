@@ -16,9 +16,11 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (hub: Hub) => void;
+  pickupLat?: number;
+  pickupLng?: number;
 }
 
-export default function DropOffPointSelector({ isOpen, onClose, onSelect }: Props) {
+export default function DropOffPointSelector({ isOpen, onClose, onSelect, pickupLat, pickupLng }: Props) {
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -26,12 +28,13 @@ export default function DropOffPointSelector({ isOpen, onClose, onSelect }: Prop
     if (isOpen) {
       loadHubs();
     }
-  }, [isOpen]);
+  }, [isOpen, pickupLat, pickupLng]);
 
   const loadHubs = async () => {
+    console.log('[DropOffPointSelector] loadHubs input coordinates:', { pickupLat, pickupLng });
     setLoading(true);
     try {
-      const res = await parcelApi.getHubs();
+      const res = await parcelApi.getHubs(pickupLat, pickupLng);
       setHubs(res.hubs || []);
     } catch (error) {
       console.log('Failed to load hubs:', error);

@@ -20,6 +20,7 @@ import { SupabaseService } from "../supabase/supabase.service";
 import { DriverDashboardService } from "../driver-dashboard/driver-dashboard.service";
 import { DropOffPointsService } from "../drop-off-points/drop-off-points.service";
 import { GoogleMapsService } from "../google-maps/google-maps.service";
+import { PaymentService } from "../payment/payment.service";
 
 const PHONE_REGEX = /^09\d{9}$/;
 
@@ -155,6 +156,7 @@ export class ParcelDraftsService {
     private readonly supabaseService: SupabaseService,
     private readonly googleMapsService: GoogleMapsService,
     private readonly dropOffPointsService: DropOffPointsService,
+    private readonly paymentService: PaymentService,
     @Inject(forwardRef(() => DriverDashboardService))
     private readonly driverDashboardService: DriverDashboardService,
   ) {}
@@ -311,7 +313,7 @@ export class ParcelDraftsService {
     };
   }
 
-  async getAvailableHubs(user: SessionPayload) {
+  async getAvailableHubs(user: SessionPayload, lat?: number, lng?: number) {
     if (!user?.userId) {
       throw new BadRequestException("Authenticated user is required.");
     }
@@ -364,6 +366,57 @@ export class ParcelDraftsService {
       console.error('Hint:', error.hint);
       console.error('Payload:', { draftId, serviceId, servicePrice, hubId: dropOffPoint?.id });
       throw new InternalServerErrorException(`Database error: ${error.message}`);
+    }
+  }
+
+  private async ensureSelectedService(
+    draftId: string,
+    serviceId: string,
+    servicePrice: number,
+    dropOffPoint: SelectedDropOffPoint | null,
+  ) {
+    if (serviceId !== "pakishare") return;
+
+    const admin = this.supabaseService.createAdminClient();
+    const existing = await admin
+      .schema("parcel")
+      .from("parcel_service_selections")
+      .select("parcel_draft_id")
+      .eq("parcel_draft_id", draftId)
+      .maybeSingle();
+
+    if (existing.data) return;
+    if (existing.error) {
+      console.warn("[ensureSelectedService] Unable to inspect service selection:", existing.error.message);
+    }
+
+    let selectedHub = dropOffPoint;
+    if (!selectedHub?.id) {
+      const { data: hub, error: hubError } = await admin
+        .schema("parcel")
+        .from("drop_off_points")
+        .select("id, name, address")
+        .eq("is_active", true)
+        .neq("status", "Closed")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (hubError) {
+        console.warn("[ensureSelectedService] Unable to load default hub:", hubError.message);
+      }
+
+      if (hub) {
+        selectedHub = {
+          id: hub.id,
+          name: hub.name,
+          address: hub.address,
+        };
+      }
+    }
+
+    if (selectedHub?.id) {
+      await this.saveSelectedService(draftId, serviceId, servicePrice, selectedHub);
     }
   }
 
@@ -685,6 +738,13 @@ export class ParcelDraftsService {
     const updateResult = await this.repository.updateOwnedDraftState(draftId, user.userId, {
       step_completed: 4,
       status: "draft",
+      service_id: serviceId,
+      service_price: finalPrice,
+      delivery_mode: serviceId === 'pakishare' ? 'relay' : 'direct',
+      drop_off_point_id: dropOffPoint?.id ?? null,
+      drop_off_point_name: dropOffPoint?.name ?? null,
+      drop_off_point_address: dropOffPoint?.address ?? null,
+      is_bulk: false,
     });
     if (updateResult.error) {
       console.error('--- SUPABASE ERROR [selectDraftService - updateOwnedDraftState] ---');
@@ -712,8 +772,22 @@ export class ParcelDraftsService {
   }
 
   async completeBooking(user: SessionPayload, draftId: string, body: Record<string, unknown>) {
-    const senderName = asNonEmptyString(body.senderName);
+    let senderName = asNonEmptyString(body.senderName) || "";
     const senderPhone = String(body.senderPhone ?? "").trim();
+
+    const admin = this.supabaseService.createAdminClient();
+    const { data: profile } = await admin
+      .schema("account")
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.userId)
+      .maybeSingle();
+
+    const realName = profile?.full_name || "Customer";
+    const isGenericSender = !senderName || senderName.toLowerCase() === 'me' || senderName.toLowerCase().includes('customer') || senderName.toLowerCase().includes('test');
+    if (isGenericSender) {
+      senderName = realName;
+    }
     const receiverName = asNonEmptyString(body.receiverName);
     const receiverPhone = String(body.receiverPhone ?? "").trim();
     const paymentMethod = asNonEmptyString(body.paymentMethod);
@@ -722,6 +796,7 @@ export class ParcelDraftsService {
     const totalParcels = Number(body.totalParcels ?? 0);
     const distance = asNonEmptyString(body.distance) ?? "";
     const duration = asNonEmptyString(body.duration) ?? "";
+    const dropOffPoint = normalizeDropOffPoint(body.dropOffPoint);
 
     if (!senderName || !receiverName) {
       throw new BadRequestException("Sender and receiver names are required.");
@@ -746,6 +821,44 @@ export class ParcelDraftsService {
 
     const trackingNumber = ownedDraft.data.tracking_number || createTrackingNumber();
 
+    const serviceMap: Record<string, string> = {
+      'share': 'pakishare',
+      'express': 'PakiExpress',
+      'business': 'pakibusiness'
+    };
+    const serviceId = serviceMap[selectedService] || selectedService;
+
+    if (paymentMethod === "wallet" || paymentMethod === "securepay" || paymentMethod === "bank") {
+      console.log(`[completeBooking] E-Wallet selected! Initiating APICenter checkout for ${servicePrice}...`);
+      const checkout = await this.paymentService.createEwalletCheckout(draftId, servicePrice);
+      console.log(`[completeBooking] APICenter checkout generated:`, checkout.redirectUrl);
+      
+      await this.repository.updateOwnedDraftState(draftId, user.userId, {
+        step_completed: 4,
+        status: "pending_payment",
+        service_id: serviceId,
+        service_price: servicePrice,
+      });
+
+      return {
+        draftId,
+        trackingNumber,
+        stepCompleted: 4,
+        status: "pending_payment",
+        checkoutUrl: checkout.redirectUrl, // SDK returns redirectUrl
+        message: "Redirecting to payment...",
+        booking: {
+          senderName,
+          senderPhone,
+          receiverName,
+          receiverPhone,
+          paymentMethod,
+          selectedService,
+          servicePrice,
+        }
+      };
+    }
+
     const updateResult = await this.repository.updateOwnedDraftState(draftId, user.userId, {
       step_completed: 5,
       status: "submitted",
@@ -754,6 +867,12 @@ export class ParcelDraftsService {
       sender_phone: senderPhone,
       receiver_name: receiverName,
       receiver_phone: receiverPhone,
+      service_id: serviceId,
+      service_price: servicePrice,
+      delivery_mode: serviceId === 'pakishare' ? 'relay' : 'direct',
+      tracking_progress_label: 'Booking Confirmed',
+      tracking_progress_percentage: 20,
+      tracking_current_location: 'Awaiting Driver',
     });
     if (
       updateResult.error ||
@@ -762,6 +881,9 @@ export class ParcelDraftsService {
     ) {
       throw new InternalServerErrorException("Unable to complete booking right now.");
     }
+
+    await this.ensureSelectedService(draftId, serviceId, servicePrice, dropOffPoint);
+
     try {
       await this.customerNotificationsService.createNotification(
         user.userId,
@@ -772,8 +894,7 @@ export class ParcelDraftsService {
 
       const admin = this.supabaseService.createAdminClient();
       await admin
-        .schema("account")
-        .from("customer_activity_logs")
+        .schema("parcel").from("parcel_activity_logs")
         .insert({
           user_id: user.userId,
           activity_type: "booking",
@@ -845,8 +966,7 @@ export class ParcelDraftsService {
     try {
       // Find the active job for this tracking number
       const { data: job, error: jobError } = await this.supabaseService.createAdminClient()
-        .schema("parcel")
-        .from("driver_jobs")
+        .schema("driver").from("driver_jobs")
         .select(`
           id,
           status,
@@ -1077,5 +1197,63 @@ export class ParcelDraftsService {
         ],
       },
     };
+  }
+
+  async cancelBooking(session: SessionPayload, id: string) {
+    const admin = this.supabaseService.createAdminClient();
+    
+    // 1. Fetch the booking to verify ownership and current status
+    const { data: booking, error: fetchErr } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .select("id, status, tracking_number")
+      .eq("id", id)
+      .eq("user_id", session.userId)
+      .maybeSingle();
+
+    if (fetchErr || !booking) {
+      throw new NotFoundException("Booking not found.");
+    }
+
+    if (booking.status === "cancelled") {
+      return { status: "cancelled", message: "Booking is already cancelled." };
+    }
+
+    // 2. Update the status to 'cancelled' in parcel.parcel_drafts
+    const { error: updateErr } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .update({ status: "cancelled", tracking_progress_label: "Cancelled" })
+      .eq("id", id);
+
+    if (updateErr) {
+      throw new InternalServerErrorException("Failed to cancel the booking.");
+    }
+
+    // 3. Log the activity to partner.activity_logs
+    await this.supabaseService.logActivity(
+      session.userId,
+      "BOOKING_CANCELLED",
+      "Booking",
+      id,
+      (fullName) => `Booking ${booking.tracking_number} cancelled by "${fullName}"`,
+    );
+
+    // 4. Create notification
+    await this.customerNotificationsService.createNotification(
+      session.userId,
+      "system",
+      "Booking Cancelled",
+      `Your booking ${booking.tracking_number} has been cancelled successfully.`,
+    );
+
+    // 5. Delete associated driver jobs
+    await admin
+      .schema("public")
+      .from("driver_jobs")
+      .delete()
+      .eq("parcel_draft_id", id);
+
+    return { status: "cancelled", message: "Booking cancelled successfully." };
   }
 }
