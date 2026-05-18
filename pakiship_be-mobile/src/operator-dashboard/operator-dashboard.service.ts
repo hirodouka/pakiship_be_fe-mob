@@ -348,6 +348,26 @@ export class OperatorDashboardService {
     };
   }
 
+  private async draftBelongsToHub(draftId: string, draftDropOffPointId: string | null, hubId: string) {
+    if (draftDropOffPointId === hubId) return true;
+
+    const admin = this.supabaseService.createAdminClient();
+    const { data, error } = await admin
+      .schema("parcel")
+      .from("parcel_service_selections")
+      .select("parcel_draft_id")
+      .eq("parcel_draft_id", draftId)
+      .eq("hub_id", hubId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[draftBelongsToHub] Unable to check service selection:", error.message);
+      return false;
+    }
+
+    return Boolean(data);
+  }
+
   async getDashboard(session: SessionPayload) {
     this.ensureOperator(session);
     const now = new Date();
@@ -585,7 +605,7 @@ export class OperatorDashboardService {
         throw new InternalServerErrorException("Unable to load the parcel draft details.");
       }
 
-      if (draft && draft.drop_off_point_id === hubId) {
+      if (draft && await this.draftBelongsToHub(draft.id, draft.drop_off_point_id, hubId)) {
         const nowIso = new Date().toISOString();
         const dbStatus = mapParcelStatusToDatabase(normalized);
         const { data: created, error: createError } = await admin

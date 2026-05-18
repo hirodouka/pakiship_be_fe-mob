@@ -23,6 +23,7 @@ import { GoogleMapsService } from "../google-maps/google-maps.service";
 import { PaymentService } from "../payment/payment.service";
 
 const PHONE_REGEX = /^09\d{9}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 
 type DraftItemInput = {
@@ -146,6 +147,10 @@ function normalizeDropOffPoint(value: unknown): SelectedDropOffPoint | null {
     name: asNonEmptyString(point.name),
     address: asNonEmptyString(point.address),
   };
+}
+
+function asUuidOrNull(value?: string | null) {
+  return value && UUID_PATTERN.test(value) ? value : null;
 }
 
 @Injectable()
@@ -741,7 +746,7 @@ export class ParcelDraftsService {
       service_id: serviceId,
       service_price: finalPrice,
       delivery_mode: serviceId === 'pakishare' ? 'relay' : 'direct',
-      drop_off_point_id: dropOffPoint?.id ?? null,
+      drop_off_point_id: asUuidOrNull(dropOffPoint?.id),
       drop_off_point_name: dropOffPoint?.name ?? null,
       drop_off_point_address: dropOffPoint?.address ?? null,
       is_bulk: false,
