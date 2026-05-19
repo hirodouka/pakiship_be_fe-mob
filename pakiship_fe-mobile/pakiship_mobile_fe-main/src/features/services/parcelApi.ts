@@ -95,4 +95,11 @@ export const parcelApi = {
   getTrackingDetails: async (trackingNumber: string) => {
     return apiRequest(`/parcel-drafts/track/${trackingNumber}`);
   },
+
+  confirmPayment: async (draftId: string) => {
+    return apiRequest(`/parcel-drafts/${draftId}/confirm-payment`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
 };

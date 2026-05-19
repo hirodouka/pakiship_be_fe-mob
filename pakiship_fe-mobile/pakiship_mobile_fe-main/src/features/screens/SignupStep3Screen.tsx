@@ -60,7 +60,7 @@ const UploadBox = ({ label, icon, value, onPress }: UploadBoxProps) => (
 export default function SignupStep3Screen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'SignupStep3'>>();
-  const { role, fullName, dob, mobile, email, street, city, province, password } =
+  const { role, fullName, firstName, lastName, dob, mobile, email, street, city, province, password } =
     route.params;
 
   // Form State (Mock documents)
@@ -172,6 +172,8 @@ export default function SignupStep3Screen() {
       await authApi.signup({
         role,
         fullName,
+        firstName,
+        lastName,
         dob,
         mobile,
         email,

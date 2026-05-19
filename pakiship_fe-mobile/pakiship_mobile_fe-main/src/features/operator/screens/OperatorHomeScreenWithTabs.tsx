@@ -23,7 +23,7 @@ import { TourOverlay, shouldShowTour } from "../components/TourOverlay";
 import { COLORS } from "../types/colors";
 import { useAuthSession } from "../../context/AuthSessionContext";
 import { apiRequest } from "../../services/api";
-import { registerManualEntry } from "../services/operatorApi";
+import { registerManualEntry, scanQrCode } from "../services/operatorApi";
 import type { RootStackParamList } from "../../../lib/navigation/types";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import HomeTabScreen from "./HomeTabScreen";
@@ -156,7 +156,7 @@ function ManualEntryModal({ visible, onClose, onSuccess }: { visible: boolean; o
             <TextInput
               ref={inputRef}
               style={styles.manualEntryInput}
-              placeholder="e.g. PKS-2026-001234"
+              placeholder="e.g. PKS-20260519-F62D36DD"
               placeholderTextColor={COLORS.textMuted}
               value={trackingNumber}
               onChangeText={setTrackingNumber}
@@ -338,14 +338,18 @@ export default function OperatorHomeScreenWithTabs() {
       <CameraModal
         visible={showCamera}
         onClose={() => setShowCamera(false)}
-        onSuccess={async (trackingNumber) => {
+        onSuccess={async (qrPayload) => {
           setShowCamera(false);
           try {
-            await registerManualEntry(trackingNumber);
-            fetchDashboard();
-            Alert.alert("Success", `Parcel ${trackingNumber} scanned and registered successfully.`, [
-              { text: "OK", onPress: () => navigation.navigate("ReceiveParcel") }
-            ]);
+            // Use scanQrCode which handles web QR format (JSON, tracking number, or UUID)
+            const result = await scanQrCode(qrPayload);
+            const parcel = result?.parcel;
+            fetchDashboard(); // refresh analytics + capacity
+            Alert.alert(
+              "Parcel Received!",
+              `Tracking: ${parcel?.trackingNumber ?? qrPayload}\nRecipient: ${parcel?.recipient ?? "Unknown"}`,
+              [{ text: "OK", onPress: () => navigation.navigate("ReceiveParcel") }]
+            );
           } catch (e: any) {
             Alert.alert("Error", e?.message || "Failed to register scanned parcel.");
           }

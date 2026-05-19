@@ -7,12 +7,13 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { ReceiveParcelHeader } from "../components/ReceiveParcelHeader";
 import { COLORS } from "../types/colors";
 import { fetchPendingParcels, receiveParcel, fetchHubSummary } from "../services/operatorApi";
 
 interface HubParcel {
-  id: string;
+  id: string | null;
   trackingNumber: string;
   sender: string;
   recipient: string;
@@ -20,6 +21,7 @@ interface HubParcel {
   status: string;
   arrivalTime?: string;
   storageLocation: string | null;
+  draftId?: string | null;
 }
 
 const SIZE_COLORS: Record<string, { text: string; bg: string }> = {
@@ -60,6 +62,34 @@ export default function ReceiveParcelScreen() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [processing, setProcessing] = useState(false);
 
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+
+  useEffect(() => {
+    if (scanParcel && (!permission || !permission.granted)) {
+      requestPermission();
+    }
+    if (scanParcel) {
+      setScanned(false);
+    }
+  }, [scanParcel, permission]);
+
+  const handleBarCodeScanned = ({ data }: { data: string }) => {
+    if (scanned || !scanParcel) return;
+    setScanned(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    if (data.trim() === scanParcel.trackingNumber.trim()) {
+      handleScanConfirmed();
+    } else {
+      Alert.alert(
+        "Incorrect Parcel",
+        `You scanned ${data}, but this slot expects parcel ${scanParcel.trackingNumber}.`,
+        [{ text: "OK", onPress: () => setScanned(false) }]
+      );
+    }
+  };
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -91,9 +121,15 @@ export default function ReceiveParcelScreen() {
 
   async function handleScanConfirmed() {
     if (!scanParcel) return;
+    const recordId = scanParcel.id ?? (scanParcel.draftId ? `incoming-${scanParcel.draftId}` : null);
+    if (!recordId) {
+      Alert.alert("Error", "Cannot identify this parcel. Please try manual entry.");
+      setScanParcel(null);
+      return;
+    }
     try {
       setProcessing(true);
-      await receiveParcel(scanParcel.id);
+      await receiveParcel(recordId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowSuccess(true);
       loadData();
@@ -116,11 +152,33 @@ export default function ReceiveParcelScreen() {
           <View style={styles.modalSheet}>
             <View style={styles.dragHandle} />
             <View style={styles.scannerFrame}>
-              <View style={[styles.corner, styles.cornerTL]} /><View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} /><View style={[styles.corner, styles.cornerBR]} />
-              <View style={styles.qrIconWrap}>
-                {processing ? <ActivityIndicator size="large" color={COLORS.white} /> : <Feather name="maximize" size={26} color={COLORS.white} />}
-              </View>
+              {permission?.granted ? (
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+                  barcodeScannerSettings={{
+                    barcodeTypes: ["qr"],
+                  }}
+                >
+                  <View style={[styles.corner, styles.cornerTL]} /><View style={[styles.corner, styles.cornerTR]} />
+                  <View style={[styles.corner, styles.cornerBL]} /><View style={[styles.corner, styles.cornerBR]} />
+                  <View style={styles.scanLine} />
+                  {processing && (
+                    <View style={styles.processingOverlay}>
+                      <ActivityIndicator size="large" color={COLORS.white} />
+                    </View>
+                  )}
+                </CameraView>
+              ) : (
+                <View style={styles.permissionBox}>
+                  <Feather name="camera-off" size={32} color={COLORS.textMuted} />
+                  <Text style={styles.permissionText}>Camera permission is required.</Text>
+                  <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
+                    <Text style={styles.permissionBtnText}>Enable Camera</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
             <View style={styles.scannedBox}>
               <Text style={styles.scannedLabel}>PARCEL</Text>
@@ -191,8 +249,8 @@ export default function ReceiveParcelScreen() {
             <Feather name="package" size={32} color={COLORS.textMuted} />
             <Text style={styles.emptyText}>No pending drop-offs</Text>
           </View>
-        ) : filteredPending.map((parcel) => (
-          <View key={parcel.id} style={styles.parcelCard}>
+        ) : filteredPending.map((parcel, index) => (
+          <View key={parcel.id ?? `pending-${index}`} style={styles.parcelCard}>
             <View style={styles.parcelCardHeader}>
               <View style={styles.trackingPill}><Text style={styles.parcelTrack}>{parcel.trackingNumber}</Text></View>
               <SizeBadge size={parcel.packageSize} />
@@ -231,8 +289,8 @@ export default function ReceiveParcelScreen() {
           <Text style={styles.receivedCount}>{filteredReceived.length} received</Text>
         </View>
 
-        {filteredReceived.map((parcel) => (
-          <View key={parcel.id} style={styles.receivedCard}>
+        {filteredReceived.map((parcel, index) => (
+          <View key={parcel.id ?? `received-${index}`} style={styles.receivedCard}>
             <View style={styles.receivedCardLeft}>
               <View style={styles.receivedCardHeader}>
                 <View style={styles.trackingPill}><Text style={styles.parcelTrack}>{parcel.trackingNumber}</Text></View>
@@ -300,8 +358,8 @@ const styles = StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)" },
   modalSheet: { backgroundColor: COLORS.cardBg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingBottom: 36, paddingTop: 12, gap: 16, alignItems: "center" },
   dragHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: COLORS.border, alignSelf: "center", marginBottom: 4 },
-  scannerFrame: { width: 210, height: 210, backgroundColor: COLORS.primaryLight, borderRadius: 20, alignItems: "center", justifyContent: "center", marginVertical: 8 },
-  corner: { position: "absolute", width: 28, height: 28, borderColor: COLORS.primary, borderWidth: 3 },
+  scannerFrame: { width: 210, height: 210, backgroundColor: COLORS.primaryLight, borderRadius: 20, alignItems: "center", justifyContent: "center", marginVertical: 8, overflow: "hidden" },
+  corner: { position: "absolute", width: 28, height: 28, borderColor: COLORS.primary, borderWidth: 3, zIndex: 1 },
   cornerTL: { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 6 },
   cornerTR: { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 6 },
   cornerBL: { bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 6 },
@@ -322,4 +380,44 @@ const styles = StyleSheet.create({
   successSubtitle: { fontSize: 13, fontWeight: "400", color: "rgba(0,0,0,0.6)", textAlign: "center" },
   doneBtn: { width: "100%", backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center" },
   doneBtnText: { fontSize: 15, fontWeight: "600", color: COLORS.white },
+  scanLine: {
+    position: "absolute",
+    width: "80%",
+    height: 2,
+    backgroundColor: COLORS.primary,
+    opacity: 0.8,
+    zIndex: 1,
+  },
+  permissionBox: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    gap: 8,
+  },
+  permissionText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.textMuted,
+    textAlign: "center",
+  },
+  permissionBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  permissionBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
 });

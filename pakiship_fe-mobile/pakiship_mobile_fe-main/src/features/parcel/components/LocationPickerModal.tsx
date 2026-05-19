@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { Search, X, MapPin, Map } from 'lucide-react-native';
+import { Search, X, MapPin, Map, Navigation } from 'lucide-react-native';
 import { profileApi } from '@/features/services/profileApi';
+import * as Location from 'expo-location';
+import { parcelApi } from '@/features/services/parcelApi';
 
 
 const SAMPLE_LOCATIONS: any[] = [];
@@ -25,6 +27,37 @@ export default function LocationPickerModal({ isOpen, onClose, onSelect, type }:
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
+
+  const handleUseCurrentLocation = async () => {
+    setGpsLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission to access location was denied');
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const lat = location.coords.latitude;
+      const lng = location.coords.longitude;
+
+      // Reverse geocode to get address
+      const res = await parcelApi.reverseGeocode(lat, lng);
+      const address = res.address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+      onSelect({ address, lat, lng });
+      onClose();
+    } catch (error) {
+      console.error('Error getting current location:', error);
+      alert('Failed to get your current location. Please try again or select on map.');
+    } finally {
+      setGpsLoading(false);
+    }
+  };
 
   // Auto-clear when opened/closed to prevent stale search
   useEffect(() => {
@@ -101,6 +134,31 @@ export default function LocationPickerModal({ isOpen, onClose, onSelect, type }:
             </View>
           </TouchableOpacity>
 
+          <View style={styles.borderSeparator} />
+
+          {/* Current Location Option */}
+          <TouchableOpacity 
+            style={styles.mapItem} 
+            onPress={handleUseCurrentLocation}
+            disabled={gpsLoading}
+          >
+            <View style={[styles.mapItemIcon, { backgroundColor: 'rgba(57,181,168,0.1)' }]}>
+              {gpsLoading ? (
+                <ActivityIndicator size="small" color="#39B5A8" />
+              ) : (
+                <Navigation size={18} color="#39B5A8" style={{ transform: [{ rotate: '45deg' }] }} />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+               <Text style={[styles.mapItemTitle, { color: '#39B5A8' }]}>
+                 {gpsLoading ? 'Locating...' : 'Use current location'}
+               </Text>
+               <Text style={styles.mapItemSub}>
+                 {gpsLoading ? 'Retrieving coordinates from GPS...' : 'Locate using GPS'}
+               </Text>
+            </View>
+          </TouchableOpacity>
+
           <View style={styles.divider} />
 
           {loading && <ActivityIndicator style={{ margin: 20 }} color="#39B5A8" />}
@@ -140,6 +198,7 @@ const styles = StyleSheet.create({
   mapItemIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(57,181,168,0.1)', alignItems: 'center', justifyContent: 'center' },
   mapItemTitle: { fontSize: 16, fontWeight: '800', color: '#1A5D56', marginBottom: 2 },
   mapItemSub: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
+  borderSeparator: { height: 1, backgroundColor: '#E5E7EB', marginHorizontal: 20 },
   divider: { height: 8, backgroundColor: '#F3F4F6' },
   sectionHeader: { fontSize: 11, fontWeight: '900', color: '#9CA3AF', letterSpacing: 1, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
   historySection: { paddingBottom: 20 },

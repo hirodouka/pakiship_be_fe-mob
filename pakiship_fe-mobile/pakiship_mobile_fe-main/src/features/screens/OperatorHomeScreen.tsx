@@ -229,8 +229,8 @@ function ParcelsView({ pending, received, onReceive }: { pending: DropoffParcel[
           <Text style={styles.emptyText}>No pending drop-offs</Text>
         </View>
       ) : (
-        pending.map((p) => (
-          <View key={p.id} style={styles.parcelCard}>
+        pending.map((p, idx) => (
+          <View key={`pending-${p.id ?? 'none'}-${idx}`} style={styles.parcelCard}>
             <View style={styles.parcelHeader}>
               <View style={styles.trackingPill}>
                 <Text style={styles.trackingText}>{p.trackingNumber}</Text>
@@ -260,8 +260,8 @@ function ParcelsView({ pending, received, onReceive }: { pending: DropoffParcel[
       )}
 
       <Text style={[styles.sectionLabel, { marginTop: 20 }]}>RECEIVED TODAY ({received.length})</Text>
-      {received.map((r) => (
-        <View key={r.id} style={[styles.parcelCard, styles.parcelReceivedCard]}>
+      {received.map((r, idx) => (
+        <View key={`received-${r.id ?? 'none'}-${idx}`} style={[styles.parcelCard, styles.parcelReceivedCard]}>
           <View style={styles.receivedRow}>
             <View style={styles.receivedIconWrap}>
               <MaterialCommunityIcons name="check-circle-outline" size={22} color={palette.success} />

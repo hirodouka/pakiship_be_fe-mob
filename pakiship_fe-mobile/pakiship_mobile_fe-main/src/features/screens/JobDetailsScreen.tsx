@@ -3,6 +3,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useState, useEffect } from 'react';
 import {
+  Alert,
   Image,
   Linking,
   Pressable,
@@ -152,8 +153,24 @@ export default function JobDetailsScreen() {
       await apiRequest(`/pakiship/mobile/driver/jobs/${job.id}/accept`, { method: 'POST' });
       setShowAcceptModal(false);
       fetchJobDetail(); // Refresh to show in-progress state
-    } catch (error) {
-      console.error('Failed to accept job:', error);
+    } catch (error: any) {
+      console.log('Failed to accept job:', error?.message || error);
+      setShowAcceptModal(false);
+      
+      const errorMsg = error?.message || '';
+      if (errorMsg.includes('Complete your active delivery') || errorMsg.includes('active delivery')) {
+        Alert.alert(
+          'Active Delivery in Progress',
+          'You cannot accept a job while there is an active delivery.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Failed to Accept Job',
+          errorMsg || 'An unexpected error occurred while accepting this job.',
+          [{ text: 'OK' }]
+        );
+      }
     }
   };
 
@@ -266,25 +283,7 @@ export default function JobDetailsScreen() {
               </View>
             </View>
 
-            <View style={{ width: 34, paddingLeft: 16, marginTop: -16, marginBottom: 4 }}>
-              <View style={{ width: 1.5, height: 42, backgroundColor: '#CFE9E6' }} />
-              <View style={{
-                position: 'absolute',
-                left: 5,
-                top: '50%',
-                marginTop: -12,
-                backgroundColor: '#E2F7F4',
-                borderRadius: 12,
-                width: 24,
-                height: 24,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: '#B2EBE3',
-              }}>
-                <MaterialCommunityIcons name="arrow-down" size={13} color={palette.primary} />
-              </View>
-            </View>
+            <View style={{ height: 16 }} />
 
             <View style={styles.routeStop}>
               <View style={styles.dropoffIcon}>
@@ -330,16 +329,7 @@ export default function JobDetailsScreen() {
               </View>
             </View>
 
-            {/* Connecting Flow Indicator (Arrow pointing down) */}
-            <View style={styles.flowDividerRow}>
-              <View style={styles.flowDividerLineContainer}>
-                <View style={styles.flowDividerLine} />
-                <View style={styles.flowDividerArrowBox}>
-                  <MaterialCommunityIcons name="arrow-down" size={14} color={palette.primary} />
-                </View>
-                <View style={styles.flowDividerLine} />
-              </View>
-            </View>
+            <View style={{ height: 16 }} />
 
             {/* Recipient / Receiver Section */}
             <View style={styles.customerRow}>

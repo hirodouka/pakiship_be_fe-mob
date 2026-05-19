@@ -20,9 +20,10 @@ const METHODS: PaymentMethod[] = [
 interface Props {
   selectedMethod: string;
   onSelect: (id: string) => void;
+  selectedService?: string;
 }
 
-export default function PaymentMethodSelector({ selectedMethod, onSelect }: Props) {
+export default function PaymentMethodSelector({ selectedMethod, onSelect, selectedService }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -36,30 +37,49 @@ export default function PaymentMethodSelector({ selectedMethod, onSelect }: Prop
         {METHODS.map((m) => {
           const Icon = m.icon;
           const isSelected = selectedMethod === m.id;
+          const isDisabled = selectedService === 'share' && m.id === 'cod';
           
           return (
             <TouchableOpacity 
               key={m.id} 
-              style={[styles.methodCard, isSelected && styles.methodCardActive]} 
-              onPress={() => onSelect(m.id)}
+              style={[
+                styles.methodCard, 
+                isSelected && styles.methodCardActive,
+                isDisabled && styles.methodCardDisabled
+              ]} 
+              onPress={() => {
+                if (!isDisabled) {
+                  onSelect(m.id);
+                }
+              }}
+              disabled={isDisabled}
+              activeOpacity={isDisabled ? 1 : 0.7}
             >
-              <View style={[styles.methodIconBox, isSelected && styles.methodIconActive]}>
-                <Icon size={20} color={isSelected ? '#39B5A8' : '#39B5A8'} />
+              <View style={[
+                styles.methodIconBox, 
+                isSelected && styles.methodIconActive,
+                isDisabled && styles.methodIconDisabled
+              ]}>
+                <Icon size={20} color={isDisabled ? '#A0AEC0' : '#39B5A8'} />
               </View>
               
               <View style={styles.methodInfo}>
                 <View style={styles.nameRow}>
-                  <Text style={styles.methodName}>{m.name}</Text>
+                  <Text style={[styles.methodName, isDisabled && styles.methodNameDisabled]}>
+                    {m.name}
+                  </Text>
                   {m.isSecure && (
                     <View style={styles.sslBadge}>
                       <Text style={styles.sslText}>SSL</Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.methodSub}>{m.sub}</Text>
+                <Text style={[styles.methodSub, isDisabled && styles.methodSubDisabled]}>
+                  {isDisabled ? 'Not available for PakiShare' : m.sub}
+                </Text>
               </View>
 
-              <ChevronRight size={16} color="#D1D5DB" />
+              {!isDisabled && <ChevronRight size={16} color="#D1D5DB" />}
             </TouchableOpacity>
           );
         })}
@@ -93,6 +113,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(57,181,168,0.15)',
     backgroundColor: '#fff',
   },
+  methodCardDisabled: {
+    opacity: 0.45,
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
+  },
   methodIconBox: {
     width: 44,
     height: 44,
@@ -106,10 +131,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(57,181,168,0.1)',
     borderWidth: 1,
   },
+  methodIconDisabled: {
+    backgroundColor: '#EDF2F7',
+    borderWidth: 0,
+  },
   methodInfo: { flex: 1, marginLeft: 14 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   methodName: { fontSize: 15, fontWeight: '900', color: '#041614' },
+  methodNameDisabled: {
+    color: '#A0AEC0',
+  },
   sslBadge: { backgroundColor: '#E0F2F1', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   sslText: { fontSize: 8, fontWeight: '900', color: '#39B5A8' },
   methodSub: { fontSize: 11, fontWeight: '700', color: '#9CA3AF', marginTop: 2 },
+  methodSubDisabled: {
+    color: '#CBD5E0',
+  },
 });

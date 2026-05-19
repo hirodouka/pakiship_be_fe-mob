@@ -306,7 +306,7 @@ export default function DriverHomeScreen() {
         customerPhone: job.customerPhone,
         earnings: job.earnings,
         status: job.status,
-        deliveryType: 'direct',
+        deliveryType: job.deliveryMode || 'direct',
         packageDescription: job.packageDescription,
         specialInstructions: job.specialInstructions,
       }));

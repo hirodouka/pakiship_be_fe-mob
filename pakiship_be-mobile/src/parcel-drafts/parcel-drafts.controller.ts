@@ -176,4 +176,17 @@ export class ParcelDraftsController {
       body,
     );
   }
+
+  @Post(":draftId/confirm-payment")
+  confirmPayment(
+    @Req() request: Request,
+    @Param("draftId") draftId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.parcelDraftsService.confirmPayment(
+      getSessionUser(request),
+      draftId,
+      body,
+    );
+  }
 }

@@ -130,7 +130,7 @@ function computeOnlineSeconds(session: DriverSessionRow | null, now = new Date()
   return baseSeconds + liveSeconds;
 }
 
-function mapJob(row: DriverJobRow) {
+function mapJob(row: DriverJobRow, draftInfo?: any) {
   const earningsAmount = asNumber(row.earnings_amount);
   return {
     id: row.id,
@@ -145,9 +145,12 @@ function mapJob(row: DriverJobRow) {
     status: row.status,
     parcelStatus: row.parcel_status,
     customerName: row.customer_name,
+    customerPhone: draftInfo?.sender_phone || undefined,
+    receiverName: draftInfo?.receiver_name || "Recipient",
+    receiverPhone: draftInfo?.receiver_phone || row.customer_phone || undefined,
+    deliveryMode: draftInfo?.delivery_mode || 'direct',
     packageSize: row.package_size,
     timeLimit: row.time_limit_text || undefined,
-    customerPhone: row.customer_phone || undefined,
     packageDescription: row.package_description || undefined,
     specialInstructions: row.special_instructions || undefined,
     rating: row.rating === null ? null : asNumber(row.rating),
@@ -330,6 +333,22 @@ export class DriverDashboardService {
       this.loadDriverMetrics(session.userId, now),
     ]);
 
+    const admin = this.supabaseService.createAdminClient();
+    const draftIds = jobs.map(j => j.parcel_draft_id).filter(Boolean) as string[];
+    const draftsMap = new Map<string, any>();
+    if (draftIds.length > 0) {
+      const { data: drafts } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("id, sender_phone, receiver_name, receiver_phone, delivery_mode")
+        .in("id", draftIds);
+      if (drafts) {
+        for (const draft of drafts) {
+          draftsMap.set(draft.id, draft);
+        }
+      }
+    }
+
     return {
       metrics: {
         todaysEarnings: metrics.todaysEarnings,
@@ -343,7 +362,7 @@ export class DriverDashboardService {
         currentSessionStartedAt: driverSession.current_session_started_at,
         lastSeenAt: driverSession.last_seen_at,
       },
-      jobs: jobs.map(mapJob),
+      jobs: jobs.map(job => mapJob(job, job.parcel_draft_id ? draftsMap.get(job.parcel_draft_id) : null)),
       meta: {
         currency: "PHP",
         refreshedAt: now.toISOString(),
@@ -370,7 +389,18 @@ export class DriverDashboardService {
       throw new NotFoundException("Delivery job not found.");
     }
 
-    return mapJob(data);
+    let draftInfo: any = null;
+    if (data.parcel_draft_id) {
+      const { data: draft } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("id, sender_phone, receiver_name, receiver_phone, delivery_mode")
+        .eq("id", data.parcel_draft_id)
+        .maybeSingle();
+      draftInfo = draft;
+    }
+
+    return mapJob(data, draftInfo);
   }
 
   async updatePresence(session: SessionPayload, isOnline: boolean) {
@@ -879,11 +909,7 @@ export class DriverDashboardService {
       .insert({
         job_number: draft.tracking_number || `JOB-${Math.floor(Math.random() * 10000)}`,
         pickup_address: draft.pickup_address,
-        pickup_lat: draft.pickup_lat,
-        pickup_lng: draft.pickup_lng,
         dropoff_address: draft.delivery_address,
-        dropoff_lat: draft.delivery_lat,
-        dropoff_lng: draft.delivery_lng,
         distance_text: draft.distance_text,
         earnings_amount: draft.service_price ? Number(draft.service_price) * 0.7 : 85,
         status: "available",

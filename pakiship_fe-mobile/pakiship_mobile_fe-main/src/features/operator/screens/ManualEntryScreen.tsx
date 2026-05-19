@@ -69,7 +69,7 @@ export default function ManualEntryScreen() {
           <TextInput
             ref={inputRef}
             style={styles.input}
-            placeholder="e.g. PKS-2026-001234"
+            placeholder="e.g. PKS-20260519-F62D36DD"
             placeholderTextColor={COLORS.textMuted}
             value={trackingNumber}
             onChangeText={setTrackingNumber}

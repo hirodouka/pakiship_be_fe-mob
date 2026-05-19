@@ -20,6 +20,8 @@ import {
 
 type SignupInput = {
   fullName: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   dob: string;
@@ -411,13 +413,43 @@ export class AuthService {
       if (channelValue === "email") {
         await this.tribeClient.emailSend({
           to: [{ email: targetValue }],
-          subject: "Your PakiShip password reset code",
-          text: `Your PakiShip password reset code is ${resetCode}. It expires in 10 minutes. If you did not request this, you can ignore this email.`,
+          subject: "Your PakiShip Verification Code",
+          text: `Your PakiShip verification code is ${resetCode}. It expires in 10 minutes. Never share this code with anyone.`,
           html: `
-            <p>Your PakiShip password reset code is:</p>
-            <p style="font-size:24px;font-weight:700;letter-spacing:4px;">${resetCode}</p>
-            <p>This code expires in 10 minutes.</p>
-            <p>If you did not request this, you can ignore this email.</p>
+            <div style="background-color:#121212; padding: 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+              <div style="max-width: 480px; margin: 0 auto; background-color: #222222; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                
+                <!-- Header with Gradient -->
+                <div style="background: linear-gradient(135deg, #1d4060 0%, #155e4e 100%); padding: 35px 20px; text-align: center;">
+                  <h1 style="margin: 0; font-size: 38px; font-weight: 800; color: #ffffff; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">PakiShip</h1>
+                  <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #a0aec0; letter-spacing: 1px;">Smart Shipping Solutions</p>
+                </div>
+                
+                <!-- Content Area -->
+                <div style="padding: 40px 30px; text-align: center;">
+                  <h2 style="margin: 0 0 20px 0; font-size: 26px; font-weight: 700; color: #ffffff;">🔑 Verification Code</h2>
+                  
+                  <p style="margin: 0 0 30px 0; font-size: 15px; color: #cbd5e0; line-height: 1.6;">
+                    Use the code below to verify your PakiShip account. Valid for <strong>10 minutes</strong>.
+                  </p>
+                  
+                  <!-- OTP Code Box -->
+                  <div style="background-color: #b9d1eb; border-radius: 12px; padding: 22px 10px; margin: 0 auto 30px auto; max-width: 320px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.06);">
+                    <span style="font-size: 42px; font-weight: 800; color: #1a202c; letter-spacing: 8px; font-family: monospace, Courier, monospace;">${resetCode.split("").join(" ")}</span>
+                  </div>
+                  
+                  <p style="margin: 0; font-size: 12px; color: #718096; line-height: 1.5; font-style: italic;">
+                    Never share this code with anyone. PakiShip staff will never ask for your OTP.
+                  </p>
+                </div>
+                
+                <!-- Footer Bar -->
+                <div style="background-color: #171717; padding: 20px 10px; text-align: center; border-top: 1px solid #2d2d2d;">
+                  <p style="margin: 0; font-size: 11px; color: #718096;">&copy; 2026 PakiShip. All rights reserved.</p>
+                </div>
+                
+              </div>
+            </div>
           `,
           metadata: { purpose: "password_reset", otpId },
         });
@@ -574,6 +606,8 @@ export class AuthService {
       email_confirm: true,
       user_metadata: {
         full_name: input.fullName.trim(),
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
         role,
       },
     });
@@ -585,6 +619,8 @@ export class AuthService {
     const profile = {
       id: authData.user.id,
       fullName: input.fullName.trim(),
+      firstName: input.firstName.trim(),
+      lastName: input.lastName.trim(),
       email,
       phone,
       dob: input.dob,
@@ -599,6 +635,8 @@ export class AuthService {
     const profileInsertPayload = {
       id: profile.id,
       full_name: profile.fullName,
+      first_name: profile.firstName,
+      last_name: profile.lastName,
       email: profile.email,
       phone: profile.phone,
       dob: profile.dob,
@@ -621,6 +659,8 @@ export class AuthService {
         await admin.schema("account").from("profiles").upsert({
           id: profile.id,
           full_name: profile.fullName,
+          first_name: profile.firstName,
+          last_name: profile.lastName,
           email: profile.email,
           phone: profile.phone,
           dob: profile.dob,

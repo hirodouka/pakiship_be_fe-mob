@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   InternalServerErrorException,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -352,11 +353,15 @@ export class OperatorMobileController {
     // Optionally set storage location
     if (storageLocation && result.parcel.id) {
       const admin = this.supabaseService.createAdminClient();
+      const hubRecordId = result.parcel.id.startsWith("incoming-")
+        ? result.parcel.id.replace(/^incoming-/, "")
+        : result.parcel.id;
+
       await admin
         .schema("parcel")
         .from("parcel_hub_records")
         .update({ storage_location: storageLocation })
-        .eq("id", recordId);
+        .eq("id", hubRecordId);
 
       result.parcel.storageLocation = storageLocation;
     }
@@ -383,5 +388,162 @@ export class OperatorMobileController {
       recordId,
       "picked-up",
     );
+  }
+
+  /**
+   * Scan a QR code from the web operator dashboard.
+   * The QR payload is the tracking number or draft ID printed on the booking confirmation.
+   * This registers the parcel at the operator's hub (incoming → stored).
+   */
+  @Post("scan-qr")
+  async scanQr(@Req() request: Request, @Body() body: Record<string, unknown>) {
+    const session = getSessionUser(request);
+    const raw = String(body.qrPayload ?? "").trim();
+
+    if (!raw) {
+      throw new BadRequestException("QR payload is required.");
+    }
+
+    // QR codes from the web contain either:
+    //   - A tracking number like "PKS-2026-123456"
+    //   - A JSON string like {"trackingNumber":"PKS-2026-123456","draftId":"uuid"}
+    //   - A plain UUID (draft ID)
+    let trackingNumber: string | null = null;
+    let draftId: string | null = null;
+
+    try {
+      const parsed = JSON.parse(raw);
+      trackingNumber = parsed.trackingNumber ?? null;
+      draftId = parsed.draftId ?? null;
+    } catch {
+      // Not JSON — treat as tracking number or UUID
+      const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (UUID_PATTERN.test(raw)) {
+        draftId = raw;
+      } else {
+        trackingNumber = raw;
+      }
+    }
+
+    if (!trackingNumber && !draftId) {
+      throw new BadRequestException("Invalid QR code. Could not extract tracking number or draft ID.");
+    }
+
+    // Resolve to tracking number for registerManualEntry (which handles all the hub logic)
+    if (!trackingNumber && draftId) {
+      const admin = this.supabaseService.createAdminClient();
+      const { data: draft, error } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("tracking_number")
+        .eq("id", draftId)
+        .maybeSingle();
+
+      if (error || !draft?.tracking_number) {
+        throw new BadRequestException("Parcel not found for the scanned QR code.");
+      }
+      trackingNumber = draft.tracking_number;
+    }
+
+    return this.operatorDashboardService.registerManualEntry(session, trackingNumber!);
+  }
+
+  /**
+   * Operator notifications — live from the notifications table.
+   * Operators are not customers so they can't use the customer notifications endpoint.
+   */
+  @Get("notifications")
+  async getNotifications(@Req() request: Request) {
+    const session = getSessionUser(request);
+    const admin = this.supabaseService.createAdminClient();
+
+    const { data, error } = await admin
+      .schema("notifications")
+      .from("notifications")
+      .select("id, type, title, message, is_read, created_at")
+      .eq("user_id", session.userId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    if (error) {
+      // Table may not exist yet — return empty gracefully
+      console.warn("[operator notifications] query failed:", error.message);
+      return { notifications: [], unreadCount: 0 };
+    }
+
+    function formatRelativeTime(value?: string | null) {
+      if (!value) return "Just now";
+      const diffMs = Date.now() - new Date(value).getTime();
+      const m = 60000, h = 3600000, d = 86400000;
+      if (diffMs < h) return `${Math.max(1, Math.floor(diffMs / m))} min ago`;
+      if (diffMs < d) return `${Math.max(1, Math.floor(diffMs / h))} hr ago`;
+      return `${Math.max(1, Math.floor(diffMs / d))} day ago`;
+    }
+
+    const notifications = (data ?? []).map((item) => ({
+      id: item.id,
+      type: item.type as string,
+      title: item.title,
+      message: item.message,
+      time: formatRelativeTime(item.created_at),
+      isRead: item.is_read,
+      createdAt: item.created_at,
+    }));
+
+    return {
+      notifications,
+      unreadCount: notifications.filter((n) => !n.isRead).length,
+    };
+  }
+
+  /**
+   * Mark all operator notifications as read.
+   */
+  @Patch("notifications/read-all")
+  async markNotificationsRead(@Req() request: Request) {
+    const session = getSessionUser(request);
+    const admin = this.supabaseService.createAdminClient();
+
+    await admin
+      .schema("notifications")
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", session.userId)
+      .eq("is_read", false);
+
+    return { success: true };
+  }
+
+  /**
+   * Earnings summary for the operator.
+   */
+  @Get("earnings")
+  async getEarnings(@Req() request: Request, @Query("period") period?: string) {
+    const session = getSessionUser(request);
+    const validPeriod = (["today", "week", "month"] as const).includes(period as any)
+      ? (period as "today" | "week" | "month")
+      : "month";
+
+    const dashboard = await this.operatorDashboardService.getDashboard(session);
+    return {
+      period: validPeriod,
+      totalEarned: dashboard.earnings.totalEarned,
+      weeklyIncrease: dashboard.earnings.weeklyIncrease,
+      incentives: dashboard.earnings.incentives,
+      bonusesEarned: dashboard.earnings.bonusesEarned,
+    };
+  }
+
+  /**
+   * Incentives for the operator.
+   */
+  @Get("incentives")
+  async getIncentives(@Req() request: Request) {
+    const session = getSessionUser(request);
+    const dashboard = await this.operatorDashboardService.getDashboard(session);
+    return {
+      incentives: dashboard.earnings.incentives,
+      bonusesEarned: dashboard.earnings.bonusesEarned,
+    };
   }
 }

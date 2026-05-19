@@ -38,7 +38,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.incoming;
+  const cfg = (STATUS_CONFIG[status] || STATUS_CONFIG.incoming) as { label: string; color: string; bg: string; icon: string };
   return (
     <View style={[styles.badge, { backgroundColor: cfg.bg }]}>
       <Feather name={cfg.icon as any} size={12} color={cfg.color} />
@@ -58,7 +58,7 @@ function ScanModal({ visible, onCancel, onScanned }: {
       requestPermission();
     }
     if (visible) {
-      setScanned(false);
+      setScanned(false); // reset on open so camera is always ready
     }
   }, [visible, permission]);
 
@@ -67,6 +67,8 @@ function ScanModal({ visible, onCancel, onScanned }: {
     setScanned(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onScanned(data);
+    // Reset after 2s so operator can re-scan if wrong QR
+    setTimeout(() => setScanned(false), 2000);
   };
 
   if (!visible) return null;
@@ -95,7 +97,7 @@ function ScanModal({ visible, onCancel, onScanned }: {
               </CameraView>
             ) : (
               <View style={styles.permissionBox}>
-                <Feather name="camera-off" size={48} color={COLORS.gray400} />
+                <Feather name="camera-off" size={48} color={COLORS.textMuted} />
                 <Text style={styles.permissionText}>Camera permission is required to scan parcels.</Text>
                 <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
                   <Text style={styles.permissionBtnText}>Enable Camera</Text>
@@ -243,7 +245,7 @@ function ReportLostModal({ visible, onClose, onSubmitted }: { visible: boolean; 
               <Text style={styles.fieldLabel}>TRACKING NUMBER</Text>
               <View style={styles.inputRow}>
                 <Feather name="search" size={16} color={COLORS.textMuted} />
-                <TextInput style={styles.textInput} placeholder="PKS-2026-XXXXXX" placeholderTextColor={COLORS.textMuted} value={tracking} onChangeText={setTracking} autoCapitalize="characters" />
+                <TextInput style={styles.textInput} placeholder="PKS-20260519-XXXXXXXX" placeholderTextColor={COLORS.textMuted} value={tracking} onChangeText={setTracking} autoCapitalize="characters" />
               </View>
             </View>
             <View style={styles.fieldGroup}>
@@ -263,7 +265,7 @@ function ReportLostModal({ visible, onClose, onSubmitted }: { visible: boolean; 
   );
 }
 
-function ParcelCard({ parcel, onReceive, onPickup, onDispatch }: { parcel: HubParcel; onReceive: (p: HubParcel) => void; onPickup: (p: HubParcel) => void; onDispatch: (p: HubParcel) => void }) {
+function ParcelCard({ parcel, onReceive, onPickup, onDispatch, processing }: { parcel: HubParcel; onReceive: (p: HubParcel) => void; onPickup: (p: HubParcel) => void; onDispatch: (p: HubParcel) => void; processing?: boolean }) {
   const isIncoming = parcel.status === "incoming";
   const isStored = parcel.status === "stored";
   return (
@@ -285,25 +287,33 @@ function ParcelCard({ parcel, onReceive, onPickup, onDispatch }: { parcel: HubPa
       <View style={styles.parcelFooter}>
         <StatusBadge status={parcel.status} />
         {isIncoming && (
-          <TouchableOpacity style={styles.scanBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onReceive(parcel); }} activeOpacity={0.85}>
-            <Feather name="maximize" size={14} color={COLORS.white} />
-            <Text style={styles.scanBtnText}>Scan & Receive</Text>
-            <Feather name="chevron-right" size={14} color={COLORS.white} />
+          <TouchableOpacity
+            style={[styles.scanBtn, processing && { opacity: 0.5 }]}
+            onPress={() => { if (!processing) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onReceive(parcel); } }}
+            activeOpacity={0.85}
+            disabled={processing}
+          >
+            {processing
+              ? <ActivityIndicator size="small" color={COLORS.white} />
+              : <Feather name="maximize" size={14} color={COLORS.white} />
+            }
+            <Text style={styles.scanBtnText}>{processing ? "Processing..." : "Scan & Receive"}</Text>
+            {!processing && <Feather name="chevron-right" size={14} color={COLORS.white} />}
           </TouchableOpacity>
         )}
-        {isStored && (
-          <View style={styles.storedActions}>
-            <TouchableOpacity style={styles.processBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPickup(parcel); }} activeOpacity={0.85}>
-              <Feather name="user-check" size={14} color={COLORS.primary} />
-              <Text style={styles.processBtnText}>Customer Pickup</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.dispatchBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onDispatch(parcel); }} activeOpacity={0.85}>
-              <Feather name="send" size={14} color={COLORS.white} />
-              <Text style={styles.dispatchBtnText}>Dispatch Driver</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
+      {isStored && (
+        <View style={styles.storedActions}>
+          <TouchableOpacity style={styles.processBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPickup(parcel); }} activeOpacity={0.85}>
+            <Feather name="user-check" size={14} color={COLORS.primary} />
+            <Text style={styles.processBtnText}>Customer Pickup</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.dispatchBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onDispatch(parcel); }} activeOpacity={0.85}>
+            <Feather name="send" size={14} color={COLORS.white} />
+            <Text style={styles.dispatchBtnText}>Dispatch Driver</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -316,6 +326,7 @@ export default function InventoryScreen({
   const [filter, setFilter] = useState<FilterType>("all");
   const [parcels, setParcels] = useState<HubParcel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);  // global lock — prevents duplicate requests
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [scanParcel, setScanParcel] = useState<HubParcel | null>(null);
   const [showScanSuccess, setShowScanSuccess] = useState(false);
@@ -357,21 +368,59 @@ export default function InventoryScreen({
     setScanParcel(parcel);
   }
 
-  async function handleScanConfirmed() {
-    if (!scanParcel) return;
+  async function handleScanConfirmed(scannedData?: string) {
+    if (!scanParcel || processing) return;
+
+    const recordId = scanParcel.id ?? (scanParcel.draftId ? `incoming-${scanParcel.draftId}` : null);
+    if (!recordId) {
+      Alert.alert("Error", "Cannot identify this parcel. Please try manual entry.");
+      setScanParcel(null);
+      return;
+    }
+
+    // If a QR was scanned, verify it matches this parcel's tracking number
+    if (scannedData) {
+      let scannedTracking = scannedData.trim();
+      try {
+        const parsed = JSON.parse(scannedData);
+        if (parsed.trackingNumber) scannedTracking = parsed.trackingNumber;
+      } catch { /* plain string */ }
+
+      if (
+        scanParcel.trackingNumber &&
+        scannedTracking.toUpperCase() !== scanParcel.trackingNumber.toUpperCase()
+      ) {
+        Alert.alert(
+          "Wrong Parcel",
+          `Scanned QR is for ${scannedTracking}, but selected parcel is ${scanParcel.trackingNumber}. Please scan the correct QR code.`,
+        );
+        return;
+      }
+    }
+
     try {
-      await receiveParcel(scanParcel.id);
+      setProcessing(true);
+      console.log(`[InventoryScreen] calling receiveParcel with recordId="${recordId}"`);
+      await receiveParcel(recordId);
       setShowScanSuccess(true);
       loadParcels();
     } catch (e: any) {
+      console.error(`[InventoryScreen] receiveParcel failed:`, e?.message, e);
       Alert.alert("Error", e?.message ?? "Could not receive parcel.");
       setScanParcel(null);
+    } finally {
+      setProcessing(false);
     }
   }
 
   async function handlePickupConfirmed(parcel: HubParcel) {
+    const recordId = parcel.id ?? (parcel.draftId ? `incoming-${parcel.draftId}` : null);
+    if (!recordId) {
+      Alert.alert("Error", "Cannot identify this parcel.");
+      return;
+    }
     try {
-      await markPickedUp(parcel.id);
+      await markPickedUp(recordId);
       setPickupParcel(parcel);
       setShowPickupSuccess(true);
       loadParcels();
@@ -381,8 +430,13 @@ export default function InventoryScreen({
   }
 
   async function handleDispatch(parcel: HubParcel) {
+    const recordId = parcel.id ?? (parcel.draftId ? `incoming-${parcel.draftId}` : null);
+    if (!recordId) {
+      Alert.alert("Error", "Cannot identify this parcel.");
+      return;
+    }
     try {
-      await dispatchParcel(parcel.id);
+      await dispatchParcel(recordId);
       setDispatchParcelItem(parcel);
       setShowDispatchSuccess(true);
       loadParcels();
@@ -417,8 +471,8 @@ export default function InventoryScreen({
       <ReportLostModal visible={reportModalVisible} onClose={() => setReportModalVisible(false)} onSubmitted={loadParcels} />
       <ScanModal
         visible={!!scanParcel && !showScanSuccess}
-        onCancel={() => setScanParcel(null)}
-        onScanned={handleScanConfirmed}
+        onCancel={() => { if (!processing) setScanParcel(null); }}
+        onScanned={(data) => handleScanConfirmed(data)}
       />
       <ScanSuccessModal
         visible={showScanSuccess}
@@ -459,8 +513,8 @@ export default function InventoryScreen({
           </View>
         ) : (
           filteredParcels.map((p, idx) => (
-            <View key={p.id} ref={idx === 0 ? firstCardRef : undefined}>
-              <ParcelCard parcel={p} onReceive={handleReceive} onPickup={handlePickupConfirmed} onDispatch={handleDispatch} />
+            <View key={`parcel-${p.id ?? p.draftId ?? 'none'}-${idx}`} ref={idx === 0 ? firstCardRef : undefined}>
+              <ParcelCard parcel={p} onReceive={handleReceive} onPickup={handlePickupConfirmed} onDispatch={handleDispatch} processing={processing} />
             </View>
           ))
         )}
@@ -525,10 +579,10 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
   scanBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.primary, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12 },
   scanBtnText: { fontSize: 13, fontWeight: "700", color: COLORS.white },
-  storedActions: { flexDirection: "row", gap: 8 },
-  processBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: COLORS.primaryLight, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  storedActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  processBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: COLORS.primaryLight, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
   processBtnText: { fontSize: 13, fontWeight: "600", color: COLORS.primary },
-  dispatchBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  dispatchBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
   dispatchBtnText: { fontSize: 13, fontWeight: "600", color: COLORS.white },
   reportBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.orange, borderStyle: "dashed" },
   reportBtnText: { fontSize: 12, fontWeight: "700", color: COLORS.orange, letterSpacing: 0.5 },
@@ -573,4 +627,18 @@ const styles = StyleSheet.create({
   reportSuccessTracking: { fontSize: 14, fontWeight: "400", color: COLORS.textSecondary, textAlign: "center" },
   reportSuccessBody: { fontSize: 13, fontWeight: "400", color: COLORS.textSecondary, textAlign: "center", lineHeight: 20 },
   reportSuccessIconWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#FFF0E6", alignItems: "center", justifyContent: "center", alignSelf: "center", marginVertical: 8 },
+  corner: { position: "absolute", width: 28, height: 28, borderColor: COLORS.primary, borderWidth: 3 },
+  cornerTL: { top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 6 },
+  cornerTR: { top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 6 },
+  cornerBL: { bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 6 },
+  cornerBR: { bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 6 },
+  handedToText: { fontSize: 14, fontWeight: "500", color: COLORS.textSecondary, textAlign: "center", marginTop: 4 },
+  handedToName: { fontWeight: "700", color: COLORS.text },
+  reportSuccessSheet: { backgroundColor: COLORS.cardBg, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, gap: 20 },
+  modalSubtitle: { fontSize: 13, fontWeight: "400", color: COLORS.textSecondary, marginTop: 2 },
+  fieldLabel: { fontSize: 10, fontWeight: "700", color: COLORS.textMuted, letterSpacing: 0.5 },
+  inputRow: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.background, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: COLORS.border },
+  textInput: { flex: 1, fontSize: 14, fontWeight: "400", color: COLORS.text },
+  textArea: { backgroundColor: COLORS.background, borderRadius: 14, padding: 14, fontSize: 14, fontWeight: "400", color: COLORS.text, minHeight: 100, borderWidth: 1, borderColor: COLORS.border },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 8 },
 });

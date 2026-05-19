@@ -22,6 +22,14 @@ export async function registerManualEntry(trackingNumber: string) {
   });
 }
 
+/** Scan a QR code from the web operator dashboard to receive a parcel */
+export async function scanQrCode(qrPayload: string) {
+  return apiRequest("/pakiship/mobile/operator/scan-qr", {
+    method: "POST",
+    body: JSON.stringify({ qrPayload }),
+  });
+}
+
 /** Update operator profile fields (name, email, phone) */
 export async function updateOperatorProfile(fields: { fullName?: string; email?: string; phone?: string }) {
   return apiRequest("/pakiship/mobile/operator/profile", {
@@ -68,7 +76,7 @@ export async function dispatchParcel(recordId: string) {
 
 /** Mark a parcel as picked up directly by the customer at the hub */
 export async function markPickedUp(recordId: string) {
-  return apiRequest(`/operator/dashboard/parcel-records/${recordId}/pickup`, {
+  return apiRequest(`/pakiship/mobile/operator/parcel-records/${recordId}/pickup`, {
     method: "PATCH",
   });
 }

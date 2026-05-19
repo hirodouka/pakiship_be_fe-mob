@@ -7,11 +7,12 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import {
   MapPin, Target, Navigation, Clock, ChevronLeft, ChevronRight,
-  CheckCircle, Send, AlertCircle, ArrowLeft, X, User, ShieldCheck,
+  CheckCircle, Send, AlertCircle, ArrowLeft, X, User, ShieldCheck, Plus, Bookmark
 } from 'lucide-react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import MapViewDirections from 'react-native-maps-directions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import PackageDetails, { PackageDetails as PackageDetailsType } from '@/features/parcel/components/PackageDetails';
 import ParcelCart from '@/features/parcel/components/ParcelCart';
@@ -227,6 +228,56 @@ export default function SendParcel() {
   const [senderPhone, setSenderPhone] = useState('');
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
+
+  const [savedRecipients, setSavedRecipients] = useState<{ id: string; name: string; phone: string; initial: string }[]>([]);
+
+  useEffect(() => {
+    const loadSavedRecipients = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('pakiship_saved_recipients');
+        if (stored) {
+          setSavedRecipients(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error('Failed to load saved recipients:', error);
+      }
+    };
+    loadSavedRecipients();
+  }, []);
+
+  const handleSaveRecipient = async () => {
+    if (!receiverName.trim()) {
+      showError('Please enter a recipient name first.');
+      return;
+    }
+    if (!receiverPhone.trim()) {
+      showError('Please enter a recipient phone number first.');
+      return;
+    }
+    
+    // Check if already saved
+    const exists = savedRecipients.some(r => r.phone === receiverPhone.trim());
+    if (exists) {
+      showError('Recipient phone number is already saved.');
+      return;
+    }
+
+    const newRecipient = {
+      id: `${Date.now()}`,
+      name: receiverName.trim(),
+      phone: receiverPhone.trim(),
+      initial: receiverName.trim().charAt(0).toUpperCase() || 'R'
+    };
+
+    const updated = [...savedRecipients, newRecipient];
+    setSavedRecipients(updated);
+
+    try {
+      await AsyncStorage.setItem('pakiship_saved_recipients', JSON.stringify(updated));
+    } catch (error) {
+      console.error('Failed to persist saved recipients:', error);
+    }
+  };
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
   const [showBookingConfirmation, setShowBookingConfirmation] = useState(false);
   const [bookingConfirmationData, setBookingConfirmationData] = useState<any>(null);
@@ -313,26 +364,16 @@ export default function SendParcel() {
 
       if (res.checkoutUrl) {
         await Linking.openURL(res.checkoutUrl);
-        // Do not reset right away so the user can come back, or optionally show a "pending" message.
-        setBookingConfirmationData({ 
-          trackingNumber: res.trackingNumber, 
-          senderName: 'Me', 
-          receiverName, 
-          servicePrice, 
-          totalCost: servicePrice,
-          isPendingPayment: true
-        });
-        setShowBookingConfirmation(true);
-      } else {
-        setBookingConfirmationData({ 
-          trackingNumber: res.trackingNumber, 
-          senderName: 'Me', 
-          receiverName, 
-          servicePrice, 
-          totalCost: servicePrice 
-        });
-        setShowBookingConfirmation(true);
       }
+
+      setBookingConfirmationData({ 
+        trackingNumber: res.trackingNumber, 
+        senderName: 'Me', 
+        receiverName, 
+        servicePrice, 
+        totalCost: servicePrice 
+      });
+      setShowBookingConfirmation(true);
     } catch (error: any) {
       showError(error.message || 'Failed to complete booking.');
     }
@@ -375,6 +416,12 @@ export default function SendParcel() {
           deliveryGuarantee: i.deliveryGuarantee,
           quantity: i.quantity,
         })));
+
+        const hasFoodOrFragile = cartItems.some(i => i.itemType === 'food' || i.itemType === 'fragile');
+        if (hasFoodOrFragile && selectedService === 'share') {
+          setSelectedService('express');
+          setServicePrice(175);
+        }
       } catch (error: any) {
         showError('Failed to save parcel items.');
         return;
@@ -589,7 +636,18 @@ export default function SendParcel() {
             items={cartItems}
             onUpdateQuantity={(id, q) => setCartItems(p => p.map(i => i.id === id ? { ...i, quantity: q } : i))}
             onRemoveItem={(id) => setCartItems(p => p.filter(i => i.id !== id))}
-            onContinue={() => cartItems.length > 0 ? setCurrentStep(4) : showError('Add a parcel first.')}
+            onContinue={() => {
+              if (cartItems.length > 0) {
+                const hasFoodOrFragile = cartItems.some(i => i.itemType === 'food' || i.itemType === 'fragile');
+                if (hasFoodOrFragile && selectedService === 'share') {
+                  setSelectedService('express');
+                  setServicePrice(175); // Safe initial fallback price
+                }
+                setCurrentStep(4);
+              } else {
+                showError('Add a parcel first.');
+              }
+            }}
           />
         )}
 
@@ -605,55 +663,80 @@ export default function SendParcel() {
             onSelect={(id, price) => { 
               setSelectedService(id); 
               setServicePrice(price); 
-              if (id === 'share') setShowDropOffSelector(true);
+              if (id === 'share') {
+                setShowDropOffSelector(true);
+                if (selectedPaymentMethod === 'cod') {
+                  setSelectedPaymentMethod('');
+                }
+              }
             }}
             selectedService={selectedService}
             totalParcels={cartItems.reduce((s, i) => s + i.quantity, 0)}
             packageSize={cartItems.some(i => i.size === 'XL') ? 'xl' : 'small'}
             selectedDropOffPoint={selectedDropOffPoint}
             onShowHubSelector={() => setShowDropOffSelector(true)}
+            hasFoodOrFragile={cartItems.some(i => i.itemType === 'food' || i.itemType === 'fragile')}
           />
         )}
 
         {/* ── Step 5: Contact Info ──────────────────────────────────── */}
         {currentStep === 5 && (
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-            {/* Frequent Recipients */}
+            {/* Saved Recipients */}
             <View style={styles.frequentSection}>
               <View style={styles.frequentHeader}>
                  <View style={styles.fHeaderLine} />
-                 <Text style={styles.fHeaderText}>FREQUENT RECIPIENTS</Text>
+                 <Text style={styles.fHeaderText}>SAVED RECIPIENTS</Text>
                  <View style={styles.fHeaderLine} />
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.frequentScroll}>
-                {[
-                  { id: 1, name: 'Alyssa', phone: '09171234567', initial: 'A' },
-                  { id: 2, name: 'Mario', phone: '09187654321', initial: 'M' },
-                  { id: 3, name: 'John', phone: '09191112233', initial: 'J' },
-                ].map(item => (
-                  <TouchableOpacity 
-                    key={item.id} 
-                    style={styles.frequentItem}
-                    onPress={() => { setReceiverName(item.name); setReceiverPhone(item.phone); }}
-                  >
-                    <View style={styles.fAvatar}>
-                      <Text style={styles.fAvatarText}>{item.initial}</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.fName}>{item.name}</Text>
-                      <Text style={styles.fPhone}>{item.phone}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              {savedRecipients.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.frequentScroll}>
+                  {savedRecipients.map(item => (
+                    <TouchableOpacity 
+                      key={item.id} 
+                      style={styles.frequentItem}
+                      onPress={() => { setReceiverName(item.name); setReceiverPhone(item.phone); }}
+                    >
+                      <View style={styles.fAvatar}>
+                        <Text style={styles.fAvatarText}>{item.initial}</Text>
+                      </View>
+                      <View style={{ marginRight: 8 }}>
+                        <Text style={styles.fName}>{item.name}</Text>
+                        <Text style={styles.fPhone}>{item.phone}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        style={styles.deleteRecipientBtn}
+                        onPress={async () => {
+                          const updated = savedRecipients.filter(r => r.id !== item.id);
+                          setSavedRecipients(updated);
+                          await AsyncStorage.setItem('pakiship_saved_recipients', JSON.stringify(updated));
+                        }}
+                      >
+                        <X size={12} color="#EF4444" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={styles.emptySavedRecipients}>No saved recipients yet. Fill details and tap Save to add one.</Text>
+              )}
             </View>
 
             <View style={styles.contactFormCard}>
               <View style={styles.sectionIconRow}>
-                <View style={[styles.sectionIconBox, { backgroundColor: '#F0F9F8' }]}>
-                  <User size={18} color="#39B5A8" />
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={[styles.sectionIconBox, { backgroundColor: '#F0F9F8' }]}>
+                    <User size={18} color="#39B5A8" />
+                  </View>
+                  <Text style={styles.sectionHeaderTitle}>Recipient Info</Text>
                 </View>
-                <Text style={styles.sectionHeaderTitle}>Recipient Info</Text>
+                <TouchableOpacity 
+                  style={styles.saveHeaderBtn}
+                  onPress={handleSaveRecipient}
+                >
+                  <Bookmark size={12} color="#39B5A8" />
+                  <Text style={styles.saveHeaderBtnText}>Save</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.formGroup}>
@@ -681,6 +764,7 @@ export default function SendParcel() {
               <PaymentMethodSelector
                 selectedMethod={selectedPaymentMethod}
                 onSelect={setSelectedPaymentMethod}
+                selectedService={selectedService}
               />
 
               <View style={styles.checkoutSummary}>
@@ -895,11 +979,46 @@ const styles = StyleSheet.create({
   fAvatarText: { color: '#39B5A8', fontWeight: '900', fontSize: 16 },
   fName: { fontSize: 14, fontWeight: '800', color: '#1A5D56' },
   fPhone: { fontSize: 10, fontWeight: '700', color: '#9CA3AF' },
+  deleteRecipientBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    marginLeft: 4,
+  },
+  emptySavedRecipients: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    fontWeight: '700',
+    marginVertical: 14,
+    paddingHorizontal: 16,
+  },
 
   // Contact Info Refinements
   contactFormCard: {
     backgroundColor: '#fff', borderRadius: 32, padding: 24,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 16, elevation: 2,
+  },
+  saveHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#F0F9F8',
+    borderWidth: 1,
+    borderColor: 'rgba(57,181,168,0.15)',
+  },
+  saveHeaderBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#39B5A8',
   },
   sectionIconRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
   sectionIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

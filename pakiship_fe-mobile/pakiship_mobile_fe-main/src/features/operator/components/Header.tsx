@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Image,
@@ -7,9 +7,13 @@ import {
   Platform,
   Text,
   Modal,
-  TouchableWithoutFeedback,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { Package, Gift, ShieldAlert, Clock, BellOff, CheckCheck } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../types/colors";
 import { useNavigation } from "@react-navigation/native";
@@ -19,50 +23,26 @@ import * as Haptics from "expo-haptics";
 import { useAuthSession } from "../../context/AuthSessionContext";
 import { authApi } from "../../services/authApi";
 import { LogoutModal } from "../../shared/components/LogoutModal";
+import { apiRequest } from "../../services/api";
 
-interface Notification {
+interface NotificationItem {
   id: string;
+  type: string;
   title: string;
-  body: string;
+  message: string;
   time: string;
-  icon: keyof typeof Feather.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  read: boolean;
+  isRead: boolean;
 }
 
-const INITIAL_NOTIFICATIONS: Notification[] = [
-  {
-    id: "1",
-    title: "New Parcel Arrived",
-    body: "PKS-2026-001240 has arrived at your hub.",
-    time: "2 mins ago",
-    icon: "package",
-    iconColor: COLORS.primary,
-    iconBg: COLORS.primaryLight,
-    read: false,
-  },
-  {
-    id: "2",
-    title: "Pickup Completed",
-    body: "Maria Santos picked up PKS-2026-001189.",
-    time: "15 mins ago",
-    icon: "check-circle",
-    iconColor: COLORS.green,
-    iconBg: COLORS.greenLight,
-    read: false,
-  },
-  {
-    id: "3",
-    title: "Storage Alert",
-    body: "Storage section B is at 90% capacity.",
-    time: "1 hour ago",
-    icon: "alert-triangle",
-    iconColor: COLORS.orange,
-    iconBg: COLORS.orangeLight,
-    read: true,
-  },
-];
+function getNotifStyle(type: string): { color: string; bg: string; Icon: any } {
+  switch (type) {
+    case "delivery": return { color: COLORS.primary, bg: COLORS.primaryLight, Icon: Package };
+    case "promo":    return { color: "#A855F7", bg: "#F3E8FF", Icon: Gift };
+    case "system":
+    case "security": return { color: COLORS.orange, bg: COLORS.orangeLight, Icon: ShieldAlert };
+    default:         return { color: COLORS.primary, bg: COLORS.primaryLight, Icon: Package };
+  }
+}
 
 interface HeaderProps {
   showBack?: boolean;
@@ -77,26 +57,46 @@ export function Header({ showBack, onBackPress, onHelpPress, onHelpMeasure }: He
   const helpBtnRef = useRef<any>(null);
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  function handleLogout() {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowLogoutModal(true);
-  }
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiRequest("/pakiship/mobile/operator/notifications");
+      setNotifications(res.notifications ?? []);
+    } catch (e) {
+      console.error("[Header] failed to fetch notifications:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  function handleMarkAllRead() {
+  async function handleMarkAllRead() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    try {
+      await apiRequest("/pakiship/mobile/operator/notifications/read-all", { method: "PATCH" });
+    } catch (e) {
+      console.error("[Header] mark all read failed:", e);
+    }
   }
 
   function handleBellPress() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setNotifOpen(true);
+    fetchNotifications();
   }
+
+  // Refresh unread count on mount
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   return (
     <View style={[styles.container, { paddingTop: topPad + 10 }]}>
@@ -116,99 +116,134 @@ export function Header({ showBack, onBackPress, onHelpPress, onHelpMeasure }: He
           />
         )}
       </View>
-      {showBack && (
-        <Text style={styles.headerTitle}>Profile Settings</Text>
-      )}
+
+      {showBack && <Text style={styles.headerTitle}>Profile Settings</Text>}
 
       <View style={styles.right}>
-        {/* Bell with notification dot */}
-        {!showBack && <TouchableOpacity style={styles.circleBtn} onPress={handleBellPress}>
-          <Feather name="bell" size={17} color={COLORS.primary} />
-          {unreadCount > 0 && <View style={styles.notifDot} />}
-        </TouchableOpacity>}
+        {!showBack && (
+          <TouchableOpacity style={styles.circleBtn} onPress={handleBellPress}>
+            <Feather name="bell" size={17} color={COLORS.primary} />
+            {unreadCount > 0 && <View style={styles.notifDot} />}
+          </TouchableOpacity>
+        )}
 
-        {/* Help */}
-        {!showBack && <TouchableOpacity
-          ref={helpBtnRef}
-          style={styles.circleBtn}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            if (onHelpMeasure) {
-              helpBtnRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-                onHelpMeasure({ x, y, width, height });
-              });
-            }
-            if (onHelpPress) {
-              onHelpPress();
-            }
-          }}
-        >
-          <Feather name="help-circle" size={17} color={COLORS.primary} />
-        </TouchableOpacity>}
+        {!showBack && (
+          <TouchableOpacity
+            ref={helpBtnRef}
+            style={styles.circleBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (onHelpMeasure) {
+                helpBtnRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
+                  onHelpMeasure({ x, y, width, height });
+                });
+              }
+              if (onHelpPress) onHelpPress();
+            }}
+          >
+            <Feather name="help-circle" size={17} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
 
-        {/* Profile */}
-        {!showBack && <TouchableOpacity
-          style={styles.profileBtn}
-          onPress={() => navigation.navigate("OperatorProfile")}
-        >
-          <Feather name="user" size={17} color={COLORS.primary} />
-        </TouchableOpacity>}
+        {!showBack && (
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => navigation.navigate("OperatorProfile")}
+          >
+            <Feather name="user" size={17} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
 
-        {/* Logout */}
-        {!showBack && <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-          <Feather name="log-out" size={19} color={COLORS.red} />
-        </TouchableOpacity>}
+        {!showBack && (
+          <TouchableOpacity style={styles.logoutBtn} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setShowLogoutModal(true);
+          }} activeOpacity={0.7}>
+            <Feather name="log-out" size={19} color={COLORS.red} />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Notification Dropdown */}
+      {/* Notification Modal — matches customer NotificationModal style */}
       <Modal
         visible={notifOpen}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setNotifOpen(false)}
       >
-        <TouchableWithoutFeedback onPress={() => setNotifOpen(false)}>
-          <View style={styles.modalOverlay} />
-        </TouchableWithoutFeedback>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setNotifOpen(false)} />
 
-        <View style={styles.dropdown}>
-          {/* Dropdown header */}
-          <View style={styles.dropdownHeader}>
-            <Text style={styles.dropdownTitle}>
-              NOTIFICATIONS {unreadCount > 0 ? `(${unreadCount})` : ""}
-            </Text>
-            {unreadCount > 0 && (
-              <TouchableOpacity onPress={handleMarkAllRead}>
-                <Text style={styles.markAllText}>Mark all read</Text>
-              </TouchableOpacity>
-            )}
+          <View style={[styles.modalContainer, { top: (Platform.OS === "web" ? 67 : insets.top) + 60 }]}>
+            {/* Header row */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                NOTIFICATIONS{unreadCount > 0 ? ` (${unreadCount})` : ""}
+              </Text>
+              <View style={styles.modalHeaderRight}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
+                    <CheckCheck size={14} color={COLORS.primary} />
+                    <Text style={styles.markAllText}>Mark all read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setNotifOpen(false)} style={styles.closeBtn}>
+                  <Feather name="x" size={18} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* List */}
+            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+              {loading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={COLORS.primary}
+                  style={{ marginVertical: 40 }}
+                />
+              ) : notifications.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <BellOff size={40} color="#E2E8F0" />
+                  <Text style={styles.emptyText}>No notifications yet</Text>
+                </View>
+              ) : (
+                notifications.map((item) => {
+                  const { color, bg, Icon } = getNotifStyle(item.type);
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.card}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        if (!item.isRead) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setNotifications((prev) =>
+                            prev.map((n) => n.id === item.id ? { ...n, isRead: true } : n)
+                          );
+                        }
+                      }}
+                    >
+                      <View style={[styles.iconBox, { backgroundColor: bg }]}>
+                        <Icon size={20} color={color} />
+                      </View>
+                      <View style={styles.content}>
+                        <Text style={[styles.itemTitle, item.isRead && styles.itemTitleRead]}>
+                          {item.title}
+                        </Text>
+                        <Text style={styles.itemDesc}>{item.message}</Text>
+                        <View style={styles.timeRow}>
+                          <Clock size={10} color="#9CA3AF" />
+                          <Text style={styles.itemTime}>{item.time}</Text>
+                        </View>
+                      </View>
+                      {!item.isRead && <View style={styles.unreadDot} />}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
           </View>
-
-          {/* Notification items */}
-          {notifications.map((n) => (
-            <TouchableOpacity
-              key={n.id}
-              style={[styles.notifItem, n.read && styles.notifItemRead]}
-              onPress={() => {
-                if (!n.read) {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setNotifications((prev) => prev.map((item) => item.id === n.id ? { ...item, read: true } : item));
-                }
-              }}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.notifIconWrap, { backgroundColor: n.iconBg }]}>
-                <Feather name={n.icon} size={16} color={n.iconColor} />
-              </View>
-              <View style={styles.notifContent}>
-                <Text style={[styles.notifTitle, n.read && styles.notifTitleRead]}>
-                  {n.title}
-                </Text>
-                <Text style={styles.notifBody}>{n.body}</Text>
-                <Text style={styles.notifTime}>{n.time}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
         </View>
       </Modal>
 
@@ -219,7 +254,7 @@ export function Header({ showBack, onBackPress, onHelpPress, onHelpMeasure }: He
           try {
             await authApi.logout();
           } catch (e) {
-            console.log('Logout failed:', e);
+            console.log("Logout failed:", e);
           } finally {
             clearCurrentUser();
             setShowLogoutModal(false);
@@ -240,19 +275,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingBottom: 10,
   },
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  logo: {
-    width: 90,
-    height: 36,
-    marginLeft: 0,
-  },
-  backBtn: {
-    padding: 4,
-  },
+  left: { flexDirection: "row", alignItems: "center", zIndex: 10 },
+  logo: { width: 90, height: 36 },
+  backBtn: { padding: 4 },
   headerTitle: {
     fontSize: 17,
     fontWeight: "800",
@@ -263,12 +288,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     bottom: 10,
   },
-  right: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    zIndex: 10,
-  },
+  right: { flexDirection: "row", alignItems: "center", gap: 6, zIndex: 10 },
   circleBtn: {
     width: 36,
     height: 36,
@@ -287,12 +307,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logoutBtn: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  logoutBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   notifDot: {
     position: "absolute",
     top: 5,
@@ -305,84 +320,74 @@ const styles = StyleSheet.create({
     borderColor: COLORS.white,
   },
 
-  /* Modal overlay */
-  modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.15)",
-  },
+  // Modal overlay
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)" },
 
-  /* Dropdown panel */
-  dropdown: {
+  // Modal container — matches customer NotificationModal exactly
+  modalContainer: {
     position: "absolute",
-    top: Platform.OS === "web" ? 77 : 100,
     right: 14,
     left: 14,
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 18,
-    padding: 16,
-    gap: 12,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 16,
+    backgroundColor: "#fff",
+    borderRadius: 28,
+    padding: 22,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
     elevation: 8,
   },
-  dropdownHeader: {
+  modalHeader: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 4,
+    alignItems: "center",
+    marginBottom: 20,
   },
-  dropdownTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: COLORS.text,
-    letterSpacing: 0.3,
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#041614",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
-  markAllText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.primary,
-  },
+  modalHeaderRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  markAllBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+  markAllText: { fontSize: 12, fontWeight: "700", color: COLORS.primary },
+  closeBtn: { padding: 4 },
 
-  /* Notification item */
-  notifItem: {
+  list: { maxHeight: 420 },
+
+  // Notification card — matches customer style
+  card: {
     flexDirection: "row",
-    gap: 12,
+    gap: 14,
+    marginBottom: 20,
     alignItems: "flex-start",
   },
-  notifItemRead: {
-    opacity: 0.5,
-  },
-  notifIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  iconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  notifContent: {
-    flex: 1,
-    gap: 2,
+  content: { flex: 1 },
+  itemTitle: { fontSize: 15, fontWeight: "900", color: "#041614", marginBottom: 2 },
+  itemTitleRead: { fontWeight: "600", color: COLORS.textSecondary },
+  itemDesc: { fontSize: 12, fontWeight: "600", color: "#6B7280", lineHeight: 18, marginBottom: 6 },
+  timeRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  itemTime: { fontSize: 11, fontWeight: "800", color: "#9CA3AF" },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+    marginTop: 6,
+    flexShrink: 0,
   },
-  notifTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: COLORS.text,
-  },
-  notifTitleRead: {
-    fontWeight: "600",
-  },
-  notifBody: {
-    fontSize: 12,
-    fontWeight: "400",
-    color: COLORS.textSecondary,
-  },
-  notifTime: {
-    fontSize: 11,
-    fontWeight: "400",
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
+
+  // Empty state
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
+  emptyText: { fontSize: 13, fontWeight: "700", color: "#9CA3AF", marginTop: 12 },
 });

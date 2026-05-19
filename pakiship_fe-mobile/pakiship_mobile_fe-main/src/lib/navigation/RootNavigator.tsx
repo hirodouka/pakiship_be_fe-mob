@@ -19,6 +19,7 @@ import OperatorHomeScreen from '../../features/operator/screens/OperatorHomeScre
 import OperatorProfileScreen from '../../features/operator/screens/ProfileScreen';
 import ReceiveParcelScreen from '../../features/operator/screens/ReceiveParcelScreen';
 import ManualEntryScreen from '../../features/operator/screens/ManualEntryScreen';
+import QRScannerScreen from '../../features/operator/screens/QRScannerScreen';
 import CustomerHomeScreen from '../../features/home/screens/HomeScreen';
 import CustomerProfileScreen from '../../features/profile/screens/EditProfileScreen';
 import SendParcelScreen from '../../features/parcel/screens/SendParcelScreen';
@@ -64,6 +65,7 @@ export default function RootNavigator({ onBackToLauncher }: RootNavigatorProps) 
       <Stack.Screen name="OperatorProfile" component={OperatorProfileScreen} />
       <Stack.Screen name="ReceiveParcel" component={ReceiveParcelScreen} />
       <Stack.Screen name="ManualEntry" component={ManualEntryScreen} />
+      <Stack.Screen name="QRScanner" component={QRScannerScreen} />
     </Stack.Navigator>
   );
 }

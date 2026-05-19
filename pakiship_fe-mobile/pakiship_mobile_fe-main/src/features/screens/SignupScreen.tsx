@@ -13,9 +13,21 @@ export default function SignupScreen() {
 
   // Form State
   const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [dob, setDob] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
+
+  const handleFirstNameChange = (val: string) => {
+    setFirstName(val);
+    setFullName(`${val} ${lastName}`.trim());
+  };
+
+  const handleLastNameChange = (val: string) => {
+    setLastName(val);
+    setFullName(`${firstName} ${val}`.trim());
+  };
 
   const handleDobChange = (text: string) => {
     let cleaned = text.replace(/\D/g, '').substring(0, 8);
@@ -42,7 +54,13 @@ export default function SignupScreen() {
   };
 
   // Basic validation to enable button
-  const isFormValid = fullName.trim() !== '' && dob.length === 10 && mobile.length === 12 && email.trim() !== '';
+  const isFormValid = 
+    fullName.trim() !== '' && 
+    firstName.trim() !== '' && 
+    lastName.trim() !== '' && 
+    dob.length === 10 && 
+    mobile.length === 12 && 
+    email.trim() !== '';
 
   const handleContinue = () => {
     if (isFormValid) {
@@ -52,6 +70,8 @@ export default function SignupScreen() {
       navigation.navigate('SignupStep2', {
         role,
         fullName: fullName.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         dob: isoDob,
         mobile,
         email: email.trim().toLowerCase(),
@@ -88,6 +108,49 @@ export default function SignupScreen() {
 
           <View className="space-y-6">
             
+            {/* First Name & Last Name (Side by Side) */}
+            <View className="flex-row items-center space-x-4">
+              <View className="flex-1">
+                <Text className="text-[11px] font-bold text-primary tracking-widest uppercase ml-1 mb-2">First Name</Text>
+                <View className="flex-row items-center bg-[#F4FBFA] rounded-[22px] px-4 py-4 h-16">
+                  <User color="#39B5A8" size={20} strokeWidth={2} />
+                  <TextInput
+                    className="flex-1 ml-3 text-[14px] text-dark font-medium leading-tight p-0"
+                    placeholder="Juan"
+                    placeholderTextColor="#B0BDBA"
+                    underlineColorAndroid="transparent"
+                    selectionColor="#39B5A8"
+                    textContentType="oneTimeCode"
+                    autoComplete="off"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    value={firstName}
+                    onChangeText={handleFirstNameChange}
+                  />
+                </View>
+              </View>
+
+              <View className="flex-1">
+                <Text className="text-[11px] font-bold text-primary tracking-widest uppercase ml-1 mb-2">Last Name</Text>
+                <View className="flex-row items-center bg-[#F4FBFA] rounded-[22px] px-4 py-4 h-16">
+                  <User color="#39B5A8" size={20} strokeWidth={2} />
+                  <TextInput
+                    className="flex-1 ml-3 text-[14px] text-dark font-medium leading-tight p-0"
+                    placeholder="Dela Cruz"
+                    placeholderTextColor="#B0BDBA"
+                    underlineColorAndroid="transparent"
+                    selectionColor="#39B5A8"
+                    textContentType="oneTimeCode"
+                    autoComplete="off"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    value={lastName}
+                    onChangeText={handleLastNameChange}
+                  />
+                </View>
+              </View>
+            </View>
+
             {/* Full Name */}
             <View>
               <Text className="text-[11px] font-bold text-primary tracking-widest uppercase ml-1 mb-2">Full Name</Text>

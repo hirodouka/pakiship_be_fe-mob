@@ -119,9 +119,9 @@ export default function ReceiveParcelScreen() {
         {/* Categories */}
         <View className="mb-8">
            <Text className="text-sm font-black text-[#39B5A8] uppercase tracking-widest mb-4">Pending Drop-offs</Text>
-           {pending.map(p => (
+           {pending.map((p, idx) => (
              <TouchableOpacity 
-               key={p.id} 
+               key={`pending-${p.id ?? 'none'}-${idx}`} 
                onPress={() => handleScan(p)}
                className="bg-white border border-[#39B5A8]/10 rounded-3xl p-5 mb-3 shadow-sm"
              >
@@ -153,8 +153,8 @@ export default function ReceiveParcelScreen() {
 
         <View className="mb-20">
           <Text className="text-sm font-black text-[#39B5A8] uppercase tracking-widest mb-4">Received Today</Text>
-          {received.map(r => (
-            <View key={r.id} className="bg-white border border-green-100 rounded-3xl p-5 mb-3 shadow-sm flex-row items-center gap-4">
+          {received.map((r, idx) => (
+             <View key={`received-${r.id ?? 'none'}-${idx}`} className="bg-white border border-green-100 rounded-3xl p-5 mb-3 shadow-sm flex-row items-center gap-4">
                <View className="w-10 h-10 bg-green-50 rounded-2xl items-center justify-center">
                  <CheckCircle2 size={24} className="text-green-500" />
                </View>

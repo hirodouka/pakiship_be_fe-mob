@@ -49,14 +49,30 @@ export default function App() {
         apiRequest('/pakiship/mobile/customer/notifications').catch(() => ({ notifications: [] })),
       ]);
 
-      const mapped = (deliveriesRes.deliveries || []).map((d: any) => ({
-        id: d.trackingNumber,
-        location: d.to,
-        time: d.timeLabel || d.duration || 'Calculating...',
-        status: d.status || 'In Transit',
-        statusColor: d.isLive ? '#54A0CC' : '#64748b',
-        statusBg: d.isLive ? 'rgba(84, 160, 204, 0.1)' : 'rgba(100, 116, 139, 0.1)',
-      }));
+      const mapped = (deliveriesRes.deliveries || []).map((d: any) => {
+        let shortStatus = d.status || 'In Transit';
+        const s = String(shortStatus).trim().toUpperCase();
+        if (s.includes('DISPATCHED FROM DROP-OFF') || s.includes('DISPATCHED')) {
+          shortStatus = 'Dispatched';
+        } else if (s.includes('PICKED UP BY RECIPIENT') || s.includes('PICKED UP')) {
+          shortStatus = 'Picked Up';
+        } else if (s.includes('STORED AT DROP-OFF') || s.includes('STORED')) {
+          shortStatus = 'Stored at Hub';
+        } else if (s.includes('RECEIVED AT DROP-OFF') || s.includes('RECEIVED')) {
+          shortStatus = 'Received';
+        } else if (s.includes('ARRIVED AT DROP-OFF') || s.includes('ARRIVED')) {
+          shortStatus = 'Arrived';
+        }
+
+        return {
+          id: d.trackingNumber,
+          location: d.to,
+          time: d.timeLabel || d.duration || 'Calculating...',
+          status: shortStatus,
+          statusColor: d.isLive ? '#54A0CC' : '#64748b',
+          statusBg: d.isLive ? 'rgba(84, 160, 204, 0.1)' : 'rgba(100, 116, 139, 0.1)',
+        };
+      });
       setDeliveriesData(mapped);
 
       const unread = (notificationsRes.notifications || []).filter((n: any) => !n.isRead).length;
@@ -303,7 +319,9 @@ function DeliveryItem({ id, location, time, status, statusColor, statusBg }: any
       {/* Bottom half */}
       <View style={styles.deliveryBottomRow}>
         <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-          <Text style={[styles.statusBadgeText, { color: statusColor }]}>{status.toUpperCase()}</Text>
+          <Text style={[styles.statusBadgeText, { color: statusColor }]} numberOfLines={1} ellipsizeMode="tail">
+            {status.toUpperCase()}
+          </Text>
         </View>
 
         <TouchableOpacity 
@@ -457,7 +475,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
   },
   statusBadge: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, flexShrink: 1, marginRight: 8
   },
   statusBadgeText: {
     fontSize: 10, fontWeight: '900', letterSpacing: 1

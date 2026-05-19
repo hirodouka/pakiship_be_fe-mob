@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Star, MessageSquare, Zap, ShieldCheck, UserCheck, Package, Clock, CheckCircle2, AlertCircle, X, ChevronDown, History } from 'lucide-react-native';
-import { CustomerPageHeader } from '@/features/shared/components/CustomerPageHeader';
-import { apiRequest } from '@/features/services/api';
-import { parcelApi } from '@/features/services/parcelApi';
+import { CustomerPageHeader } from '@features/shared/components/CustomerPageHeader';
+import { apiRequest } from '@features/services/api';
+import { parcelApi } from '@features/services/parcelApi';
 
 const MASCOTS: Record<number, { src: any; label: string }> = {
   1: { src: require('../../../assets/mascot-parcel.png'), label: 'Poor' },
@@ -130,7 +130,7 @@ export default function RateReview() {
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.textInputIntegrated}
-              placeholder="PKS-2024-001"
+              placeholder="PKS-20260519-F62D36DD"
               value={trackingNumber}
               onChangeText={setTrackingNumber}
               autoCapitalize="characters"
@@ -150,8 +150,8 @@ export default function RateReview() {
           {/* Star Rating */}
           <Text style={styles.fieldLabel}>RATING</Text>
           <View style={styles.ratingBox}>
-            {rating > 0 && (
-              <Image source={MASCOTS[rating].src} style={styles.mascot} resizeMode="contain" />
+            {rating > 0 && MASCOTS[rating as 1|2|3|4|5] && (
+              <Image source={MASCOTS[rating as 1|2|3|4|5]!.src} style={styles.mascot} resizeMode="contain" />
             )}
             <View style={styles.starsRow}>
               {[1,2,3,4,5].map(star => (
@@ -160,7 +160,7 @@ export default function RateReview() {
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.ratingLabel}>{rating === 0 ? 'Tap to Rate' : MASCOTS[rating].label}</Text>
+            <Text style={styles.ratingLabel}>{rating === 0 ? 'Tap to Rate' : MASCOTS[rating as 1|2|3|4|5]?.label}</Text>
           </View>
 
           {/* Quick Tags */}
@@ -340,4 +340,5 @@ const styles = StyleSheet.create({
   historyItemMeta: { fontSize: 11, color: '#888' },
   selectCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F0F9F8', alignItems: 'center', justifyContent: 'center' },
   emptyHistoryText: { textAlign: 'center', color: '#aaa', marginTop: 20, fontSize: 13 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(26,93,86,0.85)', justifyContent: 'flex-end' },
 });

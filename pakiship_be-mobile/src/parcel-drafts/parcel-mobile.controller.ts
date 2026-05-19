@@ -48,4 +48,17 @@ export class ParcelMobileController {
   cancelParcel(@Req() request: Request, @Param("id") id: string) {
     return this.parcelDraftsService.cancelBooking(getSessionUser(request), id);
   }
+
+  @Post(":id/confirm-payment")
+  confirmPayment(
+    @Req() request: Request,
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.parcelDraftsService.confirmPayment(
+      getSessionUser(request),
+      id,
+      body,
+    );
+  }
 }

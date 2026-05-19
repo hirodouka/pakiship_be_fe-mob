@@ -7,6 +7,8 @@ export type RootStackParamList = {
   SignupStep2: {
     role: string;
     fullName: string;
+    firstName: string;
+    lastName: string;
     dob: string;
     mobile: string;
     email: string;
@@ -14,6 +16,8 @@ export type RootStackParamList = {
   SignupStep3: {
     role: string;
     fullName: string;
+    firstName: string;
+    lastName: string;
     dob: string;
     mobile: string;
     email: string;
@@ -35,5 +39,6 @@ export type RootStackParamList = {
   OperatorProfile: undefined;
   ReceiveParcel: undefined;
   ManualEntry: undefined;
+  QRScanner: undefined;
   RateReview: undefined;
 };

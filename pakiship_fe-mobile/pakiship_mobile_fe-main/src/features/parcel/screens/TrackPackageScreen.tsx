@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Search, Package, MapPin, Clock, AlertCircle, Phone, PhoneOff, List, Map as MapIcon } from 'lucide-react-native';
-import { CustomerPageHeader } from '@/features/shared/components/CustomerPageHeader';
-import MapPreview from '@/features/parcel/components/MapPreview';
+import { CustomerPageHeader } from '@features/shared/components/CustomerPageHeader';
+import MapPreview from '@features/parcel/components/MapPreview';
 
 import { parcelApi } from '../../services/parcelApi';
 
@@ -84,7 +84,7 @@ export default function TrackPackage() {
         <Search size={16} color="#aaa" />
         <TextInput
           style={styles.searchInput}
-          placeholder="Enter Tracking ID (e.g. PKS-2024-001)"
+          placeholder="Enter Tracking ID (e.g. PKS-20260519-F62D36DD)"
           value={trackingNumber}
           onChangeText={setTrackingNumber}
           autoCapitalize="characters"

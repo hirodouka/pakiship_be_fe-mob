@@ -10,7 +10,7 @@ import { authApi } from '../services/authApi';
 export default function SignupStep2Screen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'SignupStep2'>>();
-  const { role, fullName, dob, mobile, email } = route.params;
+  const { role, fullName, firstName, lastName, dob, mobile, email } = route.params;
   const isParcelSender = role === 'parcel_sender';
 
   // Form State
@@ -44,6 +44,8 @@ export default function SignupStep2Screen() {
         await authApi.signup({
           role,
           fullName,
+          firstName,
+          lastName,
           dob,
           mobile,
           email,
@@ -70,6 +72,8 @@ export default function SignupStep2Screen() {
     navigation.navigate('SignupStep3', {
       role,
       fullName,
+      firstName,
+      lastName,
       dob,
       mobile,
       email,

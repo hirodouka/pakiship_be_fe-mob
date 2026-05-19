@@ -13,7 +13,7 @@ interface Service {
   tags?: string[];
 }
 
-const getServices = (distanceKm: number, packageSize: string, totalParcels: number): Service[] => {
+const getServices = (distanceKm: number, packageSize: string, totalParcels: number, hasFoodOrFragile: boolean): Service[] => {
   const safeDistance = isNaN(distanceKm) || distanceKm < 0 ? 0 : distanceKm;
   
   // Financial Constants (₱)
@@ -36,7 +36,7 @@ const getServices = (distanceKm: number, packageSize: string, totalParcels: numb
       time: '2-4 hrs', 
       price: calculateFinalPrice(30, 0), 
       icon: Users,
-      available: true,
+      available: !hasFoodOrFragile,
       tags: [`₱30 BASE + ₱20 SURGE`, '10% DISCOUNT', '12% VAT INCLUDED']
     },
     { 
@@ -70,6 +70,7 @@ interface Props {
   packageSize: string;
   selectedDropOffPoint: any;
   onShowHubSelector: () => void;
+  hasFoodOrFragile?: boolean;
 }
 
 export default function DeliveryServiceSelector({ 
@@ -79,10 +80,11 @@ export default function DeliveryServiceSelector({
   totalParcels,
   packageSize,
   selectedDropOffPoint,
-  onShowHubSelector
+  onShowHubSelector,
+  hasFoodOrFragile = false
 }: Props) {
   
-  const services = React.useMemo(() => getServices(distanceKm, packageSize, totalParcels), [distanceKm, packageSize, totalParcels]);
+  const services = React.useMemo(() => getServices(distanceKm, packageSize, totalParcels, hasFoodOrFragile), [distanceKm, packageSize, totalParcels, hasFoodOrFragile]);
   const selectedSvcData = services.find(s => s.id === selectedService);
 
   return (
@@ -135,7 +137,7 @@ export default function DeliveryServiceSelector({
                     <View style={styles.serviceInfo}>
                       <Text style={[styles.serviceName, !isAvailable && styles.textDisabled]}>{svc.name}</Text>
                       <Text style={styles.serviceSub}>
-                        {svc.sub} <Text style={styles.timeHighlight}>{svc.time}</Text>
+                        {!isAvailable ? 'Requires Direct Delivery' : svc.sub} {isAvailable && <Text style={styles.timeHighlight}>{svc.time}</Text>}
                       </Text>
                     </View>
 

@@ -58,8 +58,14 @@ function parsePositiveInteger(value: unknown, fallback = 1) {
 function createTrackingNumber() {
   const now = new Date();
   const year = now.getFullYear();
-  const serial = Math.floor(100000 + Math.random() * 900000);
-  return `PKS-${year}-${serial}`;
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hex = Math.floor(Math.random() * 0x100000000)
+    .toString(16)
+    .padStart(8, "0")
+    .substring(0, 8)
+    .toUpperCase();
+  return `PKS-${year}${month}${day}-${hex}`;
 }
 
 function formatHistoryDate(value: string) {
@@ -838,18 +844,90 @@ export class ParcelDraftsService {
       const checkout = await this.paymentService.createEwalletCheckout(draftId, servicePrice);
       console.log(`[completeBooking] APICenter checkout generated:`, checkout.redirectUrl);
       
-      await this.repository.updateOwnedDraftState(draftId, user.userId, {
-        step_completed: 4,
-        status: "pending_payment",
+      const updateResult = await this.repository.updateOwnedDraftState(draftId, user.userId, {
+        step_completed: 5,
+        status: "submitted",
+        tracking_number: trackingNumber,
+        sender_name: senderName,
+        sender_phone: senderPhone,
+        receiver_name: receiverName,
+        receiver_phone: receiverPhone,
         service_id: serviceId,
         service_price: servicePrice,
+        delivery_mode: serviceId === 'pakishare' ? 'relay' : 'direct',
+        tracking_progress_label: 'Booking Confirmed',
+        tracking_progress_percentage: 20,
+        tracking_current_location: 'Awaiting Driver',
       });
+
+      if (
+        !updateResult.error &&
+        updateResult.data &&
+        updateResult.data.tracking_number === trackingNumber
+      ) {
+        await this.ensureSelectedService(draftId, serviceId, servicePrice, dropOffPoint);
+
+        try {
+          await this.customerNotificationsService.createNotification(
+            user.userId,
+            "delivery",
+            "Parcel booking confirmed",
+            `Your parcel for ${receiverName} is booked. Tracking No. ${trackingNumber}.`,
+          );
+
+          const admin = this.supabaseService.createAdminClient();
+          await admin
+            .schema("parcel").from("parcel_activity_logs")
+            .insert({
+              user_id: user.userId,
+              activity_type: "booking",
+              title: "Parcel booking confirmed",
+              description: `You booked a parcel for ${receiverName}. Tracking No. ${trackingNumber}.`,
+            });
+        } catch (err) {
+          console.warn('[completeBooking] Post-booking updates failed (non-critical):', err.message);
+        }
+
+        // Create a job for drivers for direct bookings only
+        console.log(`[completeBooking] Inspecting draft for driver job creation: ${draftId}`);
+        const { data: fullDraft } = await admin
+          .schema("parcel")
+          .from("parcel_drafts")
+          .select("*")
+          .eq("id", draftId)
+          .eq("user_id", user.userId)
+          .single();
+        
+        if (fullDraft) {
+          const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
+          if (isRelay) {
+            console.log(`[completeBooking] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
+          } else {
+            const { data: items } = await admin
+              .schema("parcel")
+              .from("parcel_draft_items")
+              .select("*")
+              .eq("parcel_draft_id", draftId);
+
+            console.log(`[completeBooking] Found direct draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
+            try {
+              await this.driverDashboardService.createJobFromDraft(
+                fullDraft,
+                items || []
+              );
+              console.log(`[completeBooking] Driver job created successfully.`);
+            } catch (err) {
+              console.error(`[completeBooking] Error in createJobFromDraft:`, err);
+            }
+          }
+        }
+      }
 
       return {
         draftId,
         trackingNumber,
-        stepCompleted: 4,
-        status: "pending_payment",
+        stepCompleted: 5,
+        status: "submitted",
         checkoutUrl: checkout.redirectUrl, // SDK returns redirectUrl
         message: "Redirecting to payment...",
         booking: {
@@ -910,26 +988,40 @@ export class ParcelDraftsService {
       console.warn('[completeBooking] Post-booking updates failed (non-critical):', err.message);
     }
 
-    // Create a job for drivers for all bookings
-    console.log(`[completeBooking] Creating driver job for draft: ${draftId}`);
-    const { data: fullDraft, error: fetchError } = await this.repository.findOwnedDraftWithItems(draftId, user.userId);
-    if (fetchError) {
-      console.error(`[completeBooking] Failed to fetch full draft:`, fetchError);
-    }
+    // Create a job for drivers for direct bookings only
+    console.log(`[completeBooking] Inspecting draft for driver job creation: ${draftId}`);
+    const { data: fullDraft } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .select("*")
+      .eq("id", draftId)
+      .eq("user_id", user.userId)
+      .single();
     
     if (fullDraft) {
-      console.log(`[completeBooking] Found draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
-      try {
-        await this.driverDashboardService.createJobFromDraft(
-          { ...fullDraft, service_price: servicePrice },
-          fullDraft.parcel_draft_items || []
-        );
-        console.log(`[completeBooking] Driver job created successfully.`);
-      } catch (err) {
-        console.error(`[completeBooking] Error in createJobFromDraft:`, err);
+      const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
+      if (isRelay) {
+        console.log(`[completeBooking] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
+      } else {
+        const { data: items } = await admin
+          .schema("parcel")
+          .from("parcel_draft_items")
+          .select("*")
+          .eq("parcel_draft_id", draftId);
+
+        console.log(`[completeBooking] Found direct draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
+        try {
+          await this.driverDashboardService.createJobFromDraft(
+            fullDraft,
+            items || []
+          );
+          console.log(`[completeBooking] Driver job created successfully.`);
+        } catch (err) {
+          console.error(`[completeBooking] Error in createJobFromDraft:`, err);
+        }
       }
     } else {
-      console.error(`[completeBooking] Could not find full draft to create job.`);
+      console.error(`[completeBooking] Could not find full draft to check for job.`);
     }
 
     return {
@@ -975,6 +1067,8 @@ export class ParcelDraftsService {
         .select(`
           id,
           status,
+          parcel_status,
+          updated_at,
           customer_name,
           driver_user_id,
           accepted_at,
@@ -1016,9 +1110,15 @@ export class ParcelDraftsService {
     // Use job status if available for more granular tracking
     if (jobDetails) {
       const s = jobDetails.status?.toLowerCase();
-      if (s === "accepted" || s === "confirmed") statusLabel = "Rider Assigned";
-      if (s === "picked-up" || s === "picked_up" || s === "in-progress" || s === "in_transit" || s === "out-for-delivery") statusLabel = "Out for Delivery";
-      if (s === "completed" || s === "delivered") statusLabel = "Parcel Delivered";
+      const ps = jobDetails.parcel_status?.toLowerCase();
+
+      if (s === "completed" || s === "delivered" || ps === "delivered") {
+        statusLabel = "Parcel Delivered";
+      } else if (ps === "picked-up" || ps === "picked_up" || ps === "out-for-delivery" || ps === "out_for_delivery" || s === "in_transit" || s === "out-for-delivery") {
+        statusLabel = "In Transit";
+      } else if (s === "in-progress" || s === "accepted" || s === "confirmed") {
+        statusLabel = "Preparing for Pickup";
+      }
     }
 
     return {
@@ -1068,10 +1168,10 @@ export class ParcelDraftsService {
         {
           status: "In Transit",
           location: data.delivery_address,
-          timestamp: jobDetails?.picked_up_at 
-            ? new Date(jobDetails.picked_up_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
+          timestamp: jobDetails?.updated_at && ["picked-up", "picked_up", "out-for-delivery", "out_for_delivery", "completed", "delivered"].includes(jobDetails?.parcel_status?.toLowerCase())
+            ? new Date(jobDetails.updated_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
             : "Pending",
-          completed: ["picked-up", "picked_up", "in-progress", "in_transit", "out-for-delivery", "completed", "delivered"].includes(jobDetails?.status?.toLowerCase()) || data.status === "delivered",
+          completed: ["picked-up", "picked_up", "out-for-delivery", "out_for_delivery", "completed", "delivered"].includes(jobDetails?.parcel_status?.toLowerCase()) || ["completed", "delivered"].includes(jobDetails?.status?.toLowerCase()) || data.status === "delivered",
         },
         {
           status: "Delivered",
@@ -1079,7 +1179,7 @@ export class ParcelDraftsService {
           timestamp: jobDetails?.delivered_at 
             ? new Date(jobDetails.delivered_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })
             : "Pending",
-          completed: ["completed", "delivered"].includes(jobDetails?.status?.toLowerCase()) || data.status === "delivered",
+          completed: ["completed", "delivered"].includes(jobDetails?.status?.toLowerCase()) || data.status === "delivered" || jobDetails?.parcel_status?.toLowerCase() === "delivered",
         },
       ],
     };
@@ -1260,5 +1360,104 @@ export class ParcelDraftsService {
       .eq("parcel_draft_id", id);
 
     return { status: "cancelled", message: "Booking cancelled successfully." };
+  }
+
+  async confirmPayment(user: SessionPayload, draftId: string, body: Record<string, unknown>) {
+    const admin = this.supabaseService.createAdminClient();
+    const { data: draft, error } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .select("*")
+      .eq("id", draftId)
+      .eq("user_id", user.userId)
+      .single();
+
+    if (error || !draft) {
+      throw new NotFoundException("Parcel draft not found.");
+    }
+
+    if (draft.status !== "pending_payment") {
+      return {
+        success: true,
+        status: draft.status || "submitted",
+        trackingNumber: draft.tracking_number,
+      };
+    }
+
+    const trackingNumber = draft.tracking_number || createTrackingNumber();
+
+    const updateResult = await this.repository.updateOwnedDraftState(draftId, user.userId, {
+      step_completed: 5,
+      status: "submitted",
+      tracking_number: trackingNumber,
+      tracking_progress_label: 'Booking Confirmed',
+      tracking_progress_percentage: 20,
+      tracking_current_location: 'Awaiting Driver',
+    });
+
+    if (updateResult.error || !updateResult.data) {
+      throw new InternalServerErrorException("Unable to confirm payment.");
+    }
+
+    const receiverName = draft.receiver_name || "Recipient";
+
+    try {
+      await this.customerNotificationsService.createNotification(
+        user.userId,
+        "delivery",
+        "Parcel booking confirmed",
+        `Your parcel for ${receiverName} is booked. Tracking No. ${trackingNumber}.`,
+      );
+
+      await admin
+        .schema("parcel").from("parcel_activity_logs")
+        .insert({
+          user_id: user.userId,
+          activity_type: "booking",
+          title: "Parcel booking confirmed",
+          description: `You booked a parcel for ${receiverName}. Tracking No. ${trackingNumber}.`,
+        });
+    } catch (err) {
+      console.warn('[confirmPayment] Post-booking updates failed (non-critical):', err.message);
+    }
+
+    // Create a job for drivers for direct bookings only
+    console.log(`[confirmPayment] Inspecting draft for driver job creation: ${draftId}`);
+    const { data: fullDraft } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .select("*")
+      .eq("id", draftId)
+      .eq("user_id", user.userId)
+      .single();
+
+    if (fullDraft) {
+      const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
+      if (isRelay) {
+        console.log(`[confirmPayment] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
+      } else {
+        const { data: items } = await admin
+          .schema("parcel")
+          .from("parcel_draft_items")
+          .select("*")
+          .eq("parcel_draft_id", draftId);
+
+        try {
+          await this.driverDashboardService.createJobFromDraft(
+            fullDraft,
+            items || []
+          );
+          console.log(`[confirmPayment] Driver job created successfully.`);
+        } catch (err) {
+          console.error(`[confirmPayment] Error in createJobFromDraft:`, err);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      status: "submitted",
+      trackingNumber,
+    };
   }
 }

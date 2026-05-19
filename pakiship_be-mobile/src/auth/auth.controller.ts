@@ -97,6 +97,8 @@ export class AuthController {
 
     const requiredFields = [
       "fullName",
+      "firstName",
+      "lastName",
       "email",
       "phone",
       "dob",
@@ -115,6 +117,8 @@ export class AuthController {
 
     const result = await this.authService.createUser({
       fullName: String(body.fullName),
+      firstName: String(body.firstName),
+      lastName: String(body.lastName),
       email: String(body.email),
       phone: String(body.phone),
       dob: String(body.dob),
