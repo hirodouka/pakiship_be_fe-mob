@@ -408,7 +408,7 @@ export class OperatorDashboardService {
 
     // Look up the hub's name/slug so we can match even if the customer stored a slug
     const { data: hubRow } = await admin
-      .schema("parcel")
+      .schema("location")
       .from("drop_off_points")
       .select("id, name")
       .eq("id", hubId)
@@ -459,7 +459,7 @@ export class OperatorDashboardService {
     if (anySelection?.hub_id) {
       // Resolve the stored hub_id to a UUID and compare
       const { data: resolvedHub } = await admin
-        .schema("parcel")
+        .schema("location")
         .from("drop_off_points")
         .select("id")
         .or(`id.eq.${anySelection.hub_id},name.ilike.${anySelection.hub_id}`)
@@ -1023,16 +1023,16 @@ export class OperatorDashboardService {
     const customerName = profile?.full_name ?? draft.sender_name ?? "Customer";
 
     const { data: hubRecord } = await admin
-      .schema("parcel")
+      .schema("location")
       .from("drop_off_points")
-      .select("name, address, latitude, longitude")
+      .select("name, address, lat, lng")
       .eq("id", hubId)
       .maybeSingle();
 
     const hubAddress = hubRecord?.address ?? draft.drop_off_point_address ?? draft.pickup_address;
     const hubName = hubRecord?.name ?? draft.drop_off_point_name ?? "hub";
-    const hubLat = hubRecord?.latitude ? Number(hubRecord.latitude) : draft.pickup_lat;
-    const hubLng = hubRecord?.longitude ? Number(hubRecord.longitude) : draft.pickup_lng;
+    const hubLat = hubRecord?.lat ? Number(hubRecord.lat) : draft.pickup_lat;
+    const hubLng = hubRecord?.lng ? Number(hubRecord.lng) : draft.pickup_lng;
 
     const { error: jobError } = await admin.schema("driver").from("driver_jobs").insert({
       job_number: draft.tracking_number ?? `JOB-${Math.floor(Math.random() * 100000)}`,

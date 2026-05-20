@@ -408,12 +408,10 @@ export class ParcelDraftsService {
       let hub: any = null;
       try {
         const { data, error: hubError } = await admin
-          .schema("parcel")
+          .schema("location")
           .from("drop_off_points")
           .select("id, name, address")
           .eq("is_active", true)
-          .neq("status", "Closed")
-          .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
 

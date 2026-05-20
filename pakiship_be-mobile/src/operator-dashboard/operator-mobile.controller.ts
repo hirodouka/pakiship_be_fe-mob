@@ -44,18 +44,27 @@ export class OperatorMobileController {
   async listHubs(@Req() request: Request) {
     const admin = this.supabaseService.createAdminClient();
     const { data, error } = await admin
-      .schema("parcel")
+      .schema("location")
       .from("drop_off_points")
-      .select("id, name, address, landmark, status, capacity, max_capacity")
+      .select("id, name, address, storage_capacity, is_active")
       .eq("is_active", true)
-      .neq("status", "Closed")
       .order("name", { ascending: true });
 
     if (error) {
       throw new InternalServerErrorException("Unable to load hubs.");
     }
 
-    return { hubs: data ?? [] };
+    const hubs = (data ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      address: row.address,
+      landmark: "",
+      status: "Open",
+      capacity: "Low",
+      max_capacity: row.storage_capacity ?? 100,
+    }));
+
+    return { hubs };
   }
 
   /**
@@ -73,7 +82,7 @@ export class OperatorMobileController {
 
     // Verify the hub exists and is active
     const { data: hub, error: hubError } = await admin
-      .schema("parcel")
+      .schema("location")
       .from("drop_off_points")
       .select("id, name, address")
       .eq("id", hubId)
@@ -145,15 +154,15 @@ export class OperatorMobileController {
 
     if (hubId) {
       const { data: hub } = await admin
-        .schema("parcel")
+        .schema("location")
         .from("drop_off_points")
-        .select("name, address, max_capacity")
+        .select("name, address, storage_capacity")
         .eq("id", hubId)
         .maybeSingle();
       
       if (hub) {
         hubName = hub.name;
-        maxCapacity = hub.max_capacity ?? 100;
+        maxCapacity = hub.storage_capacity ?? 100;
         hubAddress = hub.address;
       }
     }
@@ -198,7 +207,7 @@ export class OperatorMobileController {
 
     if (hubId) {
       const { data: hubData } = await admin
-        .schema("parcel")
+        .schema("location")
         .from("drop_off_points")
         .select("id, name, address")
         .eq("id", hubId)

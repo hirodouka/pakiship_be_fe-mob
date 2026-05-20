@@ -22,9 +22,10 @@ export class DropOffPointsService {
     const normalizedQuery = String(query ?? "").trim();
     
     let dbQuery = admin
-      .schema("parcel")
+      .schema("location")
       .from("drop_off_points")
-      .select("*");
+      .select("id, name, address, operating_hours, lat, lng, storage_capacity, is_active")
+      .eq("is_active", true);
 
     if (normalizedQuery) {
       dbQuery = dbQuery.or(`name.ilike.%${normalizedQuery}%,address.ilike.%${normalizedQuery}%`);
@@ -44,7 +45,7 @@ export class DropOffPointsService {
       error = e;
     }
 
-    // Defensive fallback: If database is empty or the custom schema table doesn't exist yet,
+    // Defensive fallback: If database is empty or query fails,
     // serve default Manila PakiHubs so the booking flow works seamlessly!
     if (error || data.length === 0) {
       console.warn(
@@ -56,36 +57,36 @@ export class DropOffPointsService {
           id: "9c9b9999-9999-9999-9999-999999999901",
           name: "PakiShip Cubao Hub",
           address: "Aurora Blvd, Cubao, Quezon City, Metro Manila",
-          max_capacity: 100,
-          latitude: 14.6219,
-          longitude: 121.0511,
+          storage_capacity: 100,
+          lat: 14.6219,
+          lng: 121.0511,
           landmark: "Near Gateway Mall",
         },
         {
           id: "9c9b9999-9999-9999-9999-999999999902",
           name: "PakiShip BGC Hub",
           address: "26th St, Bonifacio Global City, Taguig, Metro Manila",
-          max_capacity: 150,
-          latitude: 14.5496,
-          longitude: 121.0437,
+          storage_capacity: 150,
+          lat: 14.5496,
+          lng: 121.0437,
           landmark: "Near High Street",
         },
         {
           id: "9c9b9999-9999-9999-9999-999999999903",
           name: "PakiShip Makati Hub",
           address: "Ayala Ave, Makati, Metro Manila",
-          max_capacity: 120,
-          latitude: 14.5547,
-          longitude: 121.0244,
+          storage_capacity: 120,
+          lat: 14.5547,
+          lng: 121.0244,
           landmark: "Near Greenbelt",
         },
         {
           id: "9c9b9999-9999-9999-9999-999999999904",
           name: "PakiShip SM North Hub",
           address: "SM North EDSA, North Ave, Quezon City, Metro Manila",
-          max_capacity: 120,
-          latitude: 14.6565,
-          longitude: 121.0298,
+          storage_capacity: 120,
+          lat: 14.6565,
+          lng: 121.0298,
           landmark: "Near The Block",
         },
       ];
@@ -94,7 +95,6 @@ export class DropOffPointsService {
 
     // Map DB rows to the expected frontend structure
     const points = await Promise.all((data ?? []).map(async (row) => {
-      // Get current storage count
       // Get current storage count safely
       let storedCount = 0;
       try {
@@ -109,7 +109,8 @@ export class DropOffPointsService {
         console.warn("[DropOffPoints] Unable to fetch hub records count:", e.message || e);
         storedCount = 0;
       }
-      const maxCapacity = row.max_capacity || 100;
+      
+      const maxCapacity = row.storage_capacity !== undefined ? Number(row.storage_capacity) : 100;
       const usagePercent = (storedCount / maxCapacity) * 100;
 
       let distanceLabel = "1.2 km";
@@ -126,6 +127,9 @@ export class DropOffPointsService {
         distanceLabel = "1.8 km";
       }
 
+      const latVal = row.lat !== undefined ? Number(row.lat) : 14.5995;
+      const lngVal = row.lng !== undefined ? Number(row.lng) : 121.0366;
+
       return {
         id: row.id,
         name: row.name,
@@ -133,8 +137,8 @@ export class DropOffPointsService {
         distance: distanceLabel,
         status: statusLabel,
         capacity: usagePercent > 70 ? "High" : usagePercent > 30 ? "Medium" : "Low",
-        latitude: row.latitude || 14.5995,
-        longitude: row.longitude || 121.0366,
+        latitude: latVal,
+        longitude: lngVal,
         landmark: row.landmark || "",
       };
     }));
