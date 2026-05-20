@@ -44,8 +44,8 @@ export class OperatorMobileController {
   async listHubs(@Req() request: Request) {
     const admin = this.supabaseService.createAdminClient();
     const { data, error } = await admin
-      .schema("routing")
-      .from("operator_hubs")
+      .schema("location")
+      .from("drop_off_points")
       .select("id, name, address, storage_capacity, is_active")
       .eq("is_active", true)
       .order("name", { ascending: true });
@@ -82,8 +82,8 @@ export class OperatorMobileController {
 
     // Verify the hub exists and is active
     const { data: hub, error: hubError } = await admin
-      .schema("routing")
-      .from("operator_hubs")
+      .schema("location")
+      .from("drop_off_points")
       .select("id, name, address")
       .eq("id", hubId)
       .eq("is_active", true)
@@ -154,8 +154,8 @@ export class OperatorMobileController {
 
     if (hubId) {
       const { data: hub } = await admin
-        .schema("routing")
-        .from("operator_hubs")
+        .schema("location")
+        .from("drop_off_points")
         .select("name, address, storage_capacity")
         .eq("id", hubId)
         .maybeSingle();
@@ -207,8 +207,8 @@ export class OperatorMobileController {
 
     if (hubId) {
       const { data: hubData } = await admin
-        .schema("routing")
-        .from("operator_hubs")
+        .schema("location")
+        .from("drop_off_points")
         .select("id, name, address")
         .eq("id", hubId)
         .maybeSingle();

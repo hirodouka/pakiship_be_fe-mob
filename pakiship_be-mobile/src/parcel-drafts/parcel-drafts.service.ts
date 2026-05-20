@@ -408,8 +408,8 @@ export class ParcelDraftsService {
       let hub: any = null;
       try {
         const { data, error: hubError } = await admin
-          .schema("routing")
-          .from("operator_hubs")
+          .schema("location")
+          .from("drop_off_points")
           .select("id, name, address")
           .eq("is_active", true)
           .limit(1)

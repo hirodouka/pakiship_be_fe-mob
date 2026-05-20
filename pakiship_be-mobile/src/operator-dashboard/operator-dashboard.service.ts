@@ -408,8 +408,8 @@ export class OperatorDashboardService {
 
     // Look up the hub's name/slug so we can match even if the customer stored a slug
     const { data: hubRow } = await admin
-      .schema("routing")
-      .from("operator_hubs")
+      .schema("location")
+      .from("drop_off_points")
       .select("id, name")
       .eq("id", hubId)
       .maybeSingle();
@@ -459,8 +459,8 @@ export class OperatorDashboardService {
     if (anySelection?.hub_id) {
       // Resolve the stored hub_id to a UUID and compare
       const { data: resolvedHub } = await admin
-        .schema("routing")
-        .from("operator_hubs")
+        .schema("location")
+        .from("drop_off_points")
         .select("id")
         .or(`id.eq.${anySelection.hub_id},name.ilike.${anySelection.hub_id}`)
         .maybeSingle();
@@ -1023,8 +1023,8 @@ export class OperatorDashboardService {
     const customerName = profile?.full_name ?? draft.sender_name ?? "Customer";
 
     const { data: hubRecord } = await admin
-      .schema("routing")
-      .from("operator_hubs")
+      .schema("location")
+      .from("drop_off_points")
       .select("name, address, lat, lng")
       .eq("id", hubId)
       .maybeSingle();
