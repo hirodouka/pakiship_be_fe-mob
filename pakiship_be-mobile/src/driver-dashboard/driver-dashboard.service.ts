@@ -439,10 +439,10 @@ export class DriverDashboardService {
     this.assertDriver(session);
     const admin = this.supabaseService.createAdminClient();
 
-    const [activeJobResult, jobResult] = await Promise.all([
+    const [activeJobsResult, jobResult] = await Promise.all([
       admin
         .schema("driver").from("driver_jobs")
-        .select("id", { count: "exact", head: true })
+        .select("id, parcel_draft_id")
         .eq("driver_user_id", session.userId)
         .eq("status", "in-progress"),
       admin
@@ -452,17 +452,71 @@ export class DriverDashboardService {
         .maybeSingle<DriverJobRow>(),
     ]);
 
-    if (activeJobResult.error || jobResult.error) {
+    if (activeJobsResult.error || jobResult.error) {
       throw new InternalServerErrorException("Unable to accept this job right now.");
-    }
-
-    if ((activeJobResult.count ?? 0) > 0) {
-      throw new BadRequestException("Complete your active delivery before accepting a new one.");
     }
 
     const job = jobResult.data;
     if (!job || job.status !== "available" || job.driver_user_id) {
       throw new NotFoundException("This delivery job is no longer available.");
+    }
+
+    // Determine target job service type
+    let targetServiceId = "direct";
+    if (job.parcel_draft_id) {
+      const { data: draft } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("service_id")
+        .eq("id", job.parcel_draft_id)
+        .maybeSingle();
+      if (draft?.service_id) {
+        targetServiceId = draft.service_id;
+      }
+    }
+
+    // Determine active jobs service types
+    const activeDraftIds = (activeJobsResult.data ?? [])
+      .map((j) => j.parcel_draft_id)
+      .filter(Boolean) as string[];
+
+    let hasActiveDirect = false;
+    let activeRelayCount = 0;
+
+    if (activeDraftIds.length > 0) {
+      const { data: activeDrafts } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("id, service_id")
+        .in("id", activeDraftIds);
+
+      if (activeDrafts) {
+        for (const draft of activeDrafts) {
+          if (draft.service_id === "pakishare") {
+            activeRelayCount++;
+          } else {
+            hasActiveDirect = true;
+          }
+        }
+      }
+    }
+
+    const isTargetRelay = targetServiceId === "pakishare";
+
+    if (isTargetRelay) {
+      // Cannot book relay if there is an active direct delivery in progress
+      if (hasActiveDirect) {
+        throw new BadRequestException(
+          "You cannot accept a relay (PakiShare) delivery while you have an active direct delivery in progress."
+        );
+      }
+    } else {
+      // Direct driver can only book/accept one booking per session
+      if (hasActiveDirect || activeRelayCount > 0) {
+        throw new BadRequestException(
+          "You cannot accept a direct delivery while you have other active deliveries in progress."
+        );
+      }
     }
 
     const now = new Date().toISOString();

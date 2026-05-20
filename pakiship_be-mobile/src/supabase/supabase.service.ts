@@ -55,12 +55,12 @@ export class SupabaseService {
       const { data: profile } = await admin
         .schema("account")
         .from("profiles")
-        .select("full_name, first_name, last_name")
+        .select("full_name")
         .eq("id", userId)
         .maybeSingle();
 
       if (profile) {
-        fullName = profile.full_name || `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "User";
+        fullName = profile.full_name || "User";
       }
 
       const description = typeof descriptionOrBuilder === 'function' 

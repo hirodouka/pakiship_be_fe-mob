@@ -600,14 +600,14 @@ export class AuthService {
       throw new ConflictException("An account with that email or mobile number already exists.");
     }
 
+    const combinedFullName = input.fullName?.trim() || `${input.firstName || ""} ${input.lastName || ""}`.trim();
+
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
       password: input.password,
       email_confirm: true,
       user_metadata: {
-        full_name: input.fullName.trim(),
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
+        full_name: combinedFullName,
         role,
       },
     });
@@ -618,9 +618,7 @@ export class AuthService {
 
     const profile = {
       id: authData.user.id,
-      fullName: input.fullName.trim(),
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
+      fullName: combinedFullName,
       email,
       phone,
       dob: input.dob,
@@ -635,8 +633,6 @@ export class AuthService {
     const profileInsertPayload = {
       id: profile.id,
       full_name: profile.fullName,
-      first_name: profile.firstName,
-      last_name: profile.lastName,
       email: profile.email,
       phone: profile.phone,
       dob: profile.dob,
@@ -659,8 +655,6 @@ export class AuthService {
         await admin.schema("account").from("profiles").upsert({
           id: profile.id,
           full_name: profile.fullName,
-          first_name: profile.firstName,
-          last_name: profile.lastName,
           email: profile.email,
           phone: profile.phone,
           dob: profile.dob,

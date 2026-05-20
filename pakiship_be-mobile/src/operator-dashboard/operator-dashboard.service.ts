@@ -1037,20 +1037,8 @@ export class OperatorDashboardService {
     const { error: jobError } = await admin.schema("driver").from("driver_jobs").insert({
       job_number: draft.tracking_number ?? `JOB-${Math.floor(Math.random() * 100000)}`,
       parcel_draft_id: draft.id,
-      customer_user_id: draft.user_id,
-      customer_name: customerName,
-      customer_phone: draft.receiver_phone ?? null,
-      pickup_address: hubAddress,
-      dropoff_address: draft.delivery_address,
-      distance_text: draft.distance_text,
-      earnings_amount: earnings,
       status: "available",
-      parcel_status: null,
-      package_size: packageSize,
-      package_description: firstItem?.item_type ?? "Standard Parcel",
-      special_instructions: `PakiShare dispatch from hub: ${hubName}`,
-      created_at: nowIso,
-      updated_at: nowIso,
+      earnings: earnings,
     });
     if (jobError) throw new InternalServerErrorException(`Unable to create driver job: ${jobError.message}`);
 

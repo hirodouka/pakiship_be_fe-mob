@@ -158,16 +158,16 @@ export default function JobDetailsScreen() {
       setShowAcceptModal(false);
       
       const errorMsg = error?.message || '';
-      if (errorMsg.includes('Complete your active delivery') || errorMsg.includes('active delivery')) {
+      if (errorMsg) {
         Alert.alert(
-          'Active Delivery in Progress',
-          'You cannot accept a job while there is an active delivery.',
+          'Active Delivery Conflict',
+          errorMsg,
           [{ text: 'OK' }]
         );
       } else {
         Alert.alert(
           'Failed to Accept Job',
-          errorMsg || 'An unexpected error occurred while accepting this job.',
+          'An unexpected error occurred while accepting this job.',
           [{ text: 'OK' }]
         );
       }

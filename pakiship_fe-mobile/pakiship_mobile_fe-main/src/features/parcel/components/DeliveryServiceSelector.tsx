@@ -13,7 +13,14 @@ interface Service {
   tags?: string[];
 }
 
-const getServices = (distanceKm: number, packageSize: string, totalParcels: number, hasFoodOrFragile: boolean): Service[] => {
+const getServices = (
+  distanceKm: number, 
+  packageSize: string, 
+  totalParcels: number, 
+  hasFoodOrFragile: boolean,
+  selectedPickupHubId?: string,
+  selectedDropOffHubId?: string
+): Service[] => {
   const safeDistance = isNaN(distanceKm) || distanceKm < 0 ? 0 : distanceKm;
   
   // Financial Constants (₱)
@@ -28,15 +35,17 @@ const getServices = (distanceKm: number, packageSize: string, totalParcels: numb
     return Math.round(final);
   };
 
+  const isSameHub = !!(selectedPickupHubId && selectedDropOffHubId && selectedPickupHubId === selectedDropOffHubId);
+
   return [
     { 
       id: 'share', 
       name: 'PakiShare', 
-      sub: 'Relay Economy', 
+      sub: isSameHub ? 'Same Hub routing not supported' : 'Relay Economy', 
       time: '2-4 hrs', 
       price: calculateFinalPrice(30, 0), 
       icon: Users,
-      available: !hasFoodOrFragile,
+      available: !hasFoodOrFragile && !isSameHub,
       tags: [`₱30 BASE + ₱20 SURGE`, '10% DISCOUNT', '12% VAT INCLUDED']
     },
     { 
@@ -69,6 +78,8 @@ interface Props {
   totalParcels: number;
   packageSize: string;
   selectedDropOffPoint: any;
+  selectedPickupHub?: any;
+  onViewHubRoute?: () => void;
   onShowHubSelector: () => void;
   hasFoodOrFragile?: boolean;
 }
@@ -80,11 +91,16 @@ export default function DeliveryServiceSelector({
   totalParcels,
   packageSize,
   selectedDropOffPoint,
+  selectedPickupHub,
+  onViewHubRoute,
   onShowHubSelector,
   hasFoodOrFragile = false
 }: Props) {
   
-  const services = React.useMemo(() => getServices(distanceKm, packageSize, totalParcels, hasFoodOrFragile), [distanceKm, packageSize, totalParcels, hasFoodOrFragile]);
+  const services = React.useMemo(() => 
+    getServices(distanceKm, packageSize, totalParcels, hasFoodOrFragile, selectedPickupHub?.id, selectedDropOffPoint?.id), 
+    [distanceKm, packageSize, totalParcels, hasFoodOrFragile, selectedPickupHub?.id, selectedDropOffPoint?.id]
+  );
   const selectedSvcData = services.find(s => s.id === selectedService);
 
   return (
@@ -166,24 +182,16 @@ export default function DeliveryServiceSelector({
                     <View style={styles.hubDisplay}>
                       <View style={styles.hubHeader}>
                         <MapPin size={14} color="#39B5A8" />
-                        <Text style={styles.hubLabel}>SELECTED DROP-OFF HUB</Text>
+                        <Text style={styles.hubLabel}>AUTOMATIC HUB ROUTE</Text>
                       </View>
                       <View style={styles.hubBody}>
-                        {selectedDropOffPoint ? (
-                          <>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.hubValue}>{selectedDropOffPoint.name}</Text>
-                              <Text style={styles.hubSub} numberOfLines={1}>{selectedDropOffPoint.address}</Text>
-                            </View>
-                            <TouchableOpacity style={styles.changeHubBtn} onPress={onShowHubSelector}>
-                              <Text style={styles.changeHubText}>Change</Text>
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          <TouchableOpacity style={styles.selectHubPrompt} onPress={onShowHubSelector}>
-                            <Text style={styles.selectHubPromptText}>Tap to select a drop-off hub</Text>
-                          </TouchableOpacity>
-                        )}
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <Text style={styles.hubValue}>{selectedPickupHub?.name || 'Nearest Hub'} ➔ {selectedDropOffPoint?.name || 'Nearest Hub'}</Text>
+                          <Text style={styles.hubSub}>Automatically routed via nearest PakiHubs</Text>
+                        </View>
+                        <TouchableOpacity style={styles.changeHubBtn} onPress={onViewHubRoute}>
+                          <Text style={styles.changeHubText}>View Hub Route</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
                   )}

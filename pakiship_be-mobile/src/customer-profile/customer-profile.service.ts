@@ -214,7 +214,7 @@ export class CustomerProfileService {
     const admin = this.supabaseService.createAdminClient();
 
     const [
-      { data: profile, error: profileError },
+      profileResult,
       authUserResponse,
       submittedDraftsResponse,
       activityLogsResponse,
@@ -232,14 +232,7 @@ export class CustomerProfileService {
           city,
           province,
           profile_picture,
-          discount_id_uploaded,
-          discount_id_type,
-          discount_id_status,
-          discount_id_file_url,
-          discount_id_submitted_at,
-          discount_id_verified_at,
           two_factor_enabled,
-          password_updated_at,
           created_at
         `)
         .eq("id", session.userId)
@@ -256,8 +249,14 @@ export class CustomerProfileService {
         .select("id, activity_type, title, description, created_at")
         .eq("user_id", session.userId)
         .order("created_at", { ascending: false })
-        .limit(5),
+        .limit(5)
+        .then(
+          (res) => (res.error ? { data: [], error: res.error } : res),
+          (err) => ({ data: [], error: err })
+        ),
     ]);
+
+    const { data: profile, error: profileError } = profileResult;
 
     if (profileError || !profile) {
       console.error(`[CustomerProfileService] Profile query failed. Error: ${profileError?.message}, Found: ${!!profile}`);
@@ -267,7 +266,7 @@ export class CustomerProfileService {
     const authUser = authUserResponse.data.user;
     const metadata = authUser?.user_metadata ?? {};
     const preferences = readPreferences(metadata.preferences);
-    const activities = (activityLogsResponse.data ?? []).map((item) => ({
+    const activities = (activityLogsResponse?.data ?? []).map((item) => ({
       id: item.id,
       type: item.activity_type,
       title: item.title,
@@ -281,21 +280,21 @@ export class CustomerProfileService {
         id: profile.id,
         fullName: profile.full_name,
         email: profile.email,
-        phone: `0${profile.phone}`,
+        phone: profile.phone ? `0${profile.phone}` : "",
         address: profile.address,
         dob: profile.dob,
         city: profile.city,
         province: profile.province,
         profilePicture: profile.profile_picture,
         preferences,
-        discountIdUploaded: Boolean(profile.discount_id_uploaded),
-        discountIdType: profile.discount_id_type,
-        discountIdStatus: profile.discount_id_status,
-        discountIdFileUrl: profile.discount_id_file_url,
-        discountIdSubmittedAt: profile.discount_id_submitted_at,
-        discountIdVerifiedAt: profile.discount_id_verified_at,
+        discountIdUploaded: Boolean(metadata.discount_id_uploaded),
+        discountIdType: metadata.discount_id_type || null,
+        discountIdStatus: metadata.discount_id_status || "none",
+        discountIdFileUrl: metadata.discount_id_file_url || null,
+        discountIdSubmittedAt: metadata.discount_id_submitted_at || null,
+        discountIdVerifiedAt: metadata.discount_id_verified_at || null,
         twoFactorEnabled: Boolean(profile.two_factor_enabled),
-        passwordUpdatedAt: profile.password_updated_at,
+        passwordUpdatedAt: metadata.password_updated_at || null,
       },
       stats: {
         totalBookings: submittedDraftsResponse.count ?? 0,
@@ -364,7 +363,7 @@ export class CustomerProfileService {
     const activityTitle = "Profile details updated";
     const activityDescription = "Your customer profile information was refreshed.";
 
-    await admin.from("customer_activity_logs").insert({
+    await admin.schema("parcel").from("parcel_activity_logs").insert({
       user_id: session.userId,
       activity_type: "profile",
       title: activityTitle,
@@ -850,7 +849,7 @@ export class CustomerProfileService {
   ) {
     try {
       const admin = this.supabaseService.createAdminClient();
-      await admin.from("customer_activity_logs").insert({
+      await admin.schema("parcel").from("parcel_activity_logs").insert({
         user_id: userId,
         activity_type: activityType,
         title,

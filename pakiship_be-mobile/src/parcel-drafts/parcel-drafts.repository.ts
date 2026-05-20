@@ -14,7 +14,7 @@ export class ParcelDraftsRepository {
     return supabase
       .schema("parcel")
       .from("parcel_drafts")
-      .select("id, user_id, step_completed, status, tracking_number")
+      .select("id, user_id, status, tracking_number")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
@@ -26,16 +26,45 @@ export class ParcelDraftsRepository {
     payload: Record<string, unknown>,
   ) {
     const supabase = this.supabaseService.createAdminClient();
-    const fullPayload = {
+    const validColumns = [
+      "id",
+      "user_id",
+      "tracking_number",
+      "pickup_address",
+      "delivery_address",
+      "sender_name",
+      "sender_phone",
+      "receiver_name",
+      "receiver_phone",
+      "service_id",
+      "service_price",
+      "delivery_mode",
+      "assigned_driver_id",
+      "status",
+      "drop_off_point_id",
+      "tracking_progress_percentage",
+      "is_bulk",
+      "drop_off_point_name",
+      "drop_off_point_address",
+      "drop_off_point_distance_text",
+      "drop_off_point_status",
+      "drop_off_point_capacity"
+    ];
+
+    const cleanedPayload: Record<string, unknown> = {
       user_id: userId,
-      ...payload,
     };
+    for (const key of Object.keys(payload)) {
+      if (validColumns.includes(key)) {
+        cleanedPayload[key] = payload[key];
+      }
+    }
 
     if (draftId) {
       return supabase
         .schema("parcel")
         .from("parcel_drafts")
-        .update(fullPayload)
+        .update(cleanedPayload)
         .eq("id", draftId)
         .eq("user_id", userId)
         .select("id")
@@ -45,7 +74,7 @@ export class ParcelDraftsRepository {
     return supabase
       .schema("parcel")
       .from("parcel_drafts")
-      .insert(fullPayload)
+      .insert(cleanedPayload)
       .select("id")
       .single();
   }
@@ -65,16 +94,7 @@ export class ParcelDraftsRepository {
       .select(`
           id,
           pickup_address,
-          pickup_details,
-          pickup_lat,
-          pickup_lng,
           delivery_address,
-          delivery_details,
-          delivery_lat,
-          delivery_lng,
-          distance_text,
-          duration_text,
-          step_completed,
           status,
           tracking_number,
           user_id
@@ -98,7 +118,7 @@ export class ParcelDraftsRepository {
           item_type,
           delivery_guarantee,
           quantity,
-          photo_name
+          photo_url
       `)
       .eq("parcel_draft_id", draftId)
       .order("id", { ascending: true })
@@ -150,7 +170,7 @@ export class ParcelDraftsRepository {
       .schema("parcel")
       .from("parcel_draft_items")
       .select(
-        "id, size, weight_text, item_type, delivery_guarantee, quantity, photo_name",
+        "id, size, weight_text, item_type, delivery_guarantee, quantity, photo_url",
         { count: "exact" },
       )
       .eq("parcel_draft_id", draftId)
@@ -210,10 +230,52 @@ export class ParcelDraftsRepository {
     patch: Record<string, unknown>,
   ) {
     const supabase = this.supabaseService.createAdminClient();
+    const validColumns = [
+      "id",
+      "user_id",
+      "tracking_number",
+      "pickup_address",
+      "delivery_address",
+      "sender_name",
+      "sender_phone",
+      "receiver_name",
+      "receiver_phone",
+      "service_id",
+      "service_price",
+      "delivery_mode",
+      "assigned_driver_id",
+      "status",
+      "drop_off_point_id",
+      "tracking_progress_percentage",
+      "is_bulk",
+      "drop_off_point_name",
+      "drop_off_point_address",
+      "drop_off_point_distance_text",
+      "drop_off_point_status",
+      "drop_off_point_capacity"
+    ];
+
+    const cleanedPatch: Record<string, unknown> = {};
+    for (const key of Object.keys(patch)) {
+      if (validColumns.includes(key)) {
+        cleanedPatch[key] = patch[key];
+      }
+    }
+
+    if (Object.keys(cleanedPatch).length === 0) {
+      return supabase
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("id, status, tracking_number")
+        .eq("id", draftId)
+        .eq("user_id", userId)
+        .single();
+    }
+
     return supabase
       .schema("parcel")
       .from("parcel_drafts")
-      .update(patch)
+      .update(cleanedPatch)
       .eq("id", draftId)
       .eq("user_id", userId)
       .select("id, status, tracking_number")
@@ -230,13 +292,7 @@ export class ParcelDraftsRepository {
           id,
           tracking_number,
           pickup_address,
-          pickup_lat,
-          pickup_lng,
           delivery_address,
-          delivery_lat,
-          delivery_lng,
-          distance_text,
-          duration_text,
           status,
           sender_name,
           sender_phone,
@@ -264,8 +320,6 @@ export class ParcelDraftsRepository {
           tracking_number,
           pickup_address,
           delivery_address,
-          distance_text,
-          duration_text,
           status,
           sender_name,
           sender_phone,
@@ -300,8 +354,6 @@ export class ParcelDraftsRepository {
           tracking_number,
           pickup_address,
           delivery_address,
-          distance_text,
-          duration_text,
           status,
           sender_name,
           sender_phone,
@@ -335,13 +387,7 @@ export class ParcelDraftsRepository {
           id,
           tracking_number,
           pickup_address,
-          pickup_lat,
-          pickup_lng,
           delivery_address,
-          delivery_lat,
-          delivery_lng,
-          distance_text,
-          duration_text,
           status,
           sender_name,
           sender_phone,
@@ -368,8 +414,6 @@ export class ParcelDraftsRepository {
           tracking_number,
           pickup_address,
           delivery_address,
-          distance_text,
-          duration_text,
           status,
           created_at,
           updated_at,
@@ -414,8 +458,6 @@ export class ParcelDraftsRepository {
           tracking_number,
           pickup_address,
           delivery_address,
-          distance_text,
-          duration_text,
           status,
           created_at,
           updated_at,

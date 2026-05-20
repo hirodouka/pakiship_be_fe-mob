@@ -223,6 +223,45 @@ export default function SendParcel() {
   const [selectedService, setSelectedService] = useState('');
   const [servicePrice, setServicePrice] = useState(175);
   const [selectedDropOffPoint, setSelectedDropOffPoint] = useState<any>(null);
+  const [selectedPickupHub, setSelectedPickupHub] = useState<any>(null);
+  const [hubs, setHubs] = useState<any[]>([]);
+  const [showHubRouteModal, setShowHubRouteModal] = useState(false);
+
+  useEffect(() => {
+    parcelApi.getHubs()
+      .then(res => {
+        setHubs(res.hubs || []);
+      })
+      .catch(err => console.log('Failed to fetch hubs:', err));
+  }, []);
+
+  const findNearestHub = (lat: number, lng: number, hubsList: any[]) => {
+    if (hubsList.length === 0) return null;
+    let nearest = hubsList[0];
+    let minDistance = calculateHaversine(lat, lng, hubsList[0].latitude || 14.5995, hubsList[0].longitude || 121.0366);
+    
+    for (let i = 1; i < hubsList.length; i++) {
+      const dist = calculateHaversine(lat, lng, hubsList[i].latitude || 14.5995, hubsList[i].longitude || 121.0366);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearest = hubsList[i];
+      }
+    }
+    return nearest;
+  };
+
+  useEffect(() => {
+    if (selectedService === 'share' && pickupLocation?.lat && deliveryLocation?.lat && hubs.length > 0) {
+      const nearestPickup = findNearestHub(pickupLocation.lat, pickupLocation.lng!, hubs);
+      const nearestDropOff = findNearestHub(deliveryLocation.lat, deliveryLocation.lng!, hubs);
+      
+      setSelectedPickupHub(nearestPickup);
+      setSelectedDropOffPoint(nearestDropOff);
+    } else if (selectedService !== 'share') {
+      setSelectedPickupHub(null);
+      setSelectedDropOffPoint(null);
+    }
+  }, [selectedService, pickupLocation?.lat, deliveryLocation?.lat, hubs]);
 
   const [senderName, setSenderName] = useState('');
   const [senderPhone, setSenderPhone] = useState('');
@@ -430,14 +469,39 @@ export default function SendParcel() {
 
     if (currentStep === 4) {
       if (!selectedService) { showError('Select a delivery service.'); return; }
-      if (selectedService === 'share' && !selectedDropOffPoint) {
-        showError('Please select a drop-off hub for PakiShare.');
-        setShowDropOffSelector(true);
-        return;
+      if (selectedService === 'share') {
+        if (!selectedDropOffPoint || !selectedPickupHub) {
+          showError('Hub routing could not be determined. Make sure pickup and drop-off locations are set.');
+          return;
+        }
+        if (selectedPickupHub.id === selectedDropOffPoint.id) {
+          showError('PakiShare requires different pickup and delivery hubs. Please select a different delivery service.');
+          return;
+        }
       }
       try {
         if (!draftId) throw new Error('Missing draft ID');
-        await parcelApi.selectService(draftId, selectedService, servicePrice, selectedDropOffPoint);
+        
+        const pickupHubLoc = selectedService === 'share' ? {
+          address: `${selectedPickupHub.name} (${selectedPickupHub.address})`,
+          lat: selectedPickupHub.latitude,
+          lng: selectedPickupHub.longitude
+        } : undefined;
+
+        const dropOffHubLoc = selectedService === 'share' ? {
+          address: `${selectedDropOffPoint.name} (${selectedDropOffPoint.address})`,
+          lat: selectedDropOffPoint.latitude,
+          lng: selectedDropOffPoint.longitude
+        } : undefined;
+
+        await parcelApi.selectService(
+          draftId, 
+          selectedService, 
+          servicePrice, 
+          selectedDropOffPoint,
+          pickupHubLoc,
+          dropOffHubLoc
+        );
       } catch (error: any) {
         showError('Failed to save service selection.');
         return;
@@ -664,7 +728,6 @@ export default function SendParcel() {
               setSelectedService(id); 
               setServicePrice(price); 
               if (id === 'share') {
-                setShowDropOffSelector(true);
                 if (selectedPaymentMethod === 'cod') {
                   setSelectedPaymentMethod('');
                 }
@@ -674,7 +737,9 @@ export default function SendParcel() {
             totalParcels={cartItems.reduce((s, i) => s + i.quantity, 0)}
             packageSize={cartItems.some(i => i.size === 'XL') ? 'xl' : 'small'}
             selectedDropOffPoint={selectedDropOffPoint}
-            onShowHubSelector={() => setShowDropOffSelector(true)}
+            selectedPickupHub={selectedPickupHub}
+            onViewHubRoute={() => setShowHubRouteModal(true)}
+            onShowHubSelector={() => {}}
             hasFoodOrFragile={cartItems.some(i => i.itemType === 'food' || i.itemType === 'fragile')}
           />
         )}
@@ -831,6 +896,43 @@ export default function SendParcel() {
         pickupLat={pickupLocation?.lat}
         pickupLng={pickupLocation?.lng}
       />
+
+      {/* ── View Hub Route Modal ────────────────────────────────────────── */}
+      {showHubRouteModal && selectedPickupHub && selectedDropOffPoint && (
+        <View style={styles.hubRouteModalContainer}>
+          <View style={styles.hubRouteModalContent}>
+            <View style={styles.hubRouteHeader}>
+              <View>
+                <Text style={styles.hubRouteTitle}>PakiShare Hub Route</Text>
+                <Text style={styles.hubRouteSubtitle}>
+                  {selectedPickupHub.name} ➔ {selectedDropOffPoint.name}
+                </Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.closeHubRouteBtn} 
+                onPress={() => setShowHubRouteModal(false)}
+              >
+                <X size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.hubRouteMapWrapper}>
+              <RouteMap 
+                pickupLoc={{
+                  address: selectedPickupHub.address,
+                  lat: selectedPickupHub.latitude,
+                  lng: selectedPickupHub.longitude
+                }}
+                deliveryLoc={{
+                  address: selectedDropOffPoint.address,
+                  lat: selectedDropOffPoint.latitude,
+                  lng: selectedDropOffPoint.longitude
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -1080,4 +1182,59 @@ const styles = StyleSheet.create({
   btnCancelPin: { width: 54, height: 54, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
   btnConfirmPin: { flex: 1, height: 54, borderRadius: 18, backgroundColor: '#111827', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   btnConfirmPinTxt: { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  // Hub Route Modal Styles
+  hubRouteModalContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(4,22,20,0.5)',
+    zIndex: 1000,
+    justifyContent: 'flex-end',
+  },
+  hubRouteModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    height: '75%',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  hubRouteHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  hubRouteTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#041614',
+  },
+  hubRouteSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#39B5A8',
+    marginTop: 2,
+  },
+  closeHubRouteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hubRouteMapWrapper: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
 });

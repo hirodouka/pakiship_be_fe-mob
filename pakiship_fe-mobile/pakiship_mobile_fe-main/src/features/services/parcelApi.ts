@@ -58,13 +58,15 @@ export const parcelApi = {
     });
   },
 
-  selectService: async (draftId: string, serviceId: string, servicePrice: number, dropOffPoint?: any) => {
+  selectService: async (draftId: string, serviceId: string, servicePrice: number, dropOffPoint?: any, pickupLocation?: any, deliveryLocation?: any) => {
     return apiRequest(`/parcel-drafts/${draftId}/service`, {
       method: 'POST',
       body: JSON.stringify({
         serviceId,
         servicePrice,
         dropOffPoint,
+        pickupLocation,
+        deliveryLocation,
       }),
     });
   },
