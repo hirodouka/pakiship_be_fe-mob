@@ -22,9 +22,9 @@ export class DropOffPointsService {
     const normalizedQuery = String(query ?? "").trim();
     
     let dbQuery = admin
-      .schema("location")
-      .from("drop_off_points")
-      .select("id, name, address, operating_hours, lat, lng, storage_capacity, is_active")
+      .schema("routing")
+      .from("operator_hubs")
+      .select("id, name, address, lat, lng, storage_capacity, is_active")
       .eq("is_active", true);
 
     if (normalizedQuery) {

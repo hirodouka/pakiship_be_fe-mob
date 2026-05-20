@@ -1,31 +1,33 @@
--- Create the drop_off_points table inside the custom location schema
-create table if not exists location.drop_off_points (
+-- Create the operator_hubs table inside the custom routing schema
+create table if not exists routing.operator_hubs (
   id uuid primary key default gen_random_uuid(),
+  owner_user_id uuid,
+  code text,
   name text not null,
   address text not null,
-  operating_hours text,
   lat double precision not null,
   lng double precision not null,
   storage_capacity integer not null default 100,
   is_active boolean not null default true,
+  geofence_on boolean not null default true,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
 
 -- Grant full usage and access to the service role
-grant usage on schema location to service_role;
-grant all on location.drop_off_points to service_role;
+grant usage on schema routing to service_role;
+grant all on routing.operator_hubs to service_role;
 
 -- Revoke public access (aligning with security guidelines)
-revoke all on location.drop_off_points from anon, authenticated;
+revoke all on routing.operator_hubs from anon, authenticated;
 
--- Seed the table with default Manila PakiHubs inside location schema
-insert into location.drop_off_points (id, name, address, lat, lng, storage_capacity, operating_hours, is_active)
+-- Seed the table with the appointed default Manila PakiHubs inside routing.operator_hubs
+insert into routing.operator_hubs (id, name, address, lat, lng, storage_capacity, is_active, geofence_on, code)
 values
-  ('9c9b9999-9999-9999-9999-999999999901', 'PakiShip Cubao Hub', 'Aurora Blvd, Cubao, Quezon City, Metro Manila', 14.6219, 121.0511, 100, '08:00 AM - 08:00 PM', true),
-  ('9c9b9999-9999-9999-9999-999999999902', 'PakiShip BGC Hub', '26th St, Bonifacio Global City, Taguig, Metro Manila', 14.5496, 121.0437, 150, '08:00 AM - 08:00 PM', true),
-  ('9c9b9999-9999-9999-9999-999999999903', 'PakiShip Makati Hub', 'Ayala Ave, Makati, Metro Manila', 14.5547, 121.0244, 120, '08:00 AM - 08:00 PM', true),
-  ('9c9b9999-9999-9999-9999-999999999904', 'PakiShip SM North Hub', 'SM North EDSA, North Ave, Quezon City, Metro Manila', 14.6565, 121.0298, 120, '08:00 AM - 08:00 PM', true)
+  ('9c9b9999-9999-9999-9999-999999999901', 'PakiShip Cubao Hub', 'Aurora Blvd, Cubao, Quezon City, Metro Manila', 14.6219, 121.0511, 100, true, true, 'HUB-MNL-004'),
+  ('9c9b9999-9999-9999-9999-999999999902', 'PakiShip BGC Hub', '26th St, Bonifacio Global City, Taguig, Metro Manila', 14.5496, 121.0437, 150, true, true, 'HUB-MNL-005'),
+  ('9c9b9999-9999-9999-9999-999999999903', 'PakiShip Makati Hub', 'Ayala Ave, Makati, Metro Manila', 14.5547, 121.0244, 120, true, true, 'HUB-MNL-006'),
+  ('9c9b9999-9999-9999-9999-999999999904', 'PakiShip SM North Hub', 'SM North EDSA, North Ave, Quezon City, Metro Manila', 14.6565, 121.0298, 120, true, true, 'HUB-MNL-007')
 on conflict (id) do update
 set
   name = excluded.name,
@@ -33,5 +35,6 @@ set
   lat = excluded.lat,
   lng = excluded.lng,
   storage_capacity = excluded.storage_capacity,
-  operating_hours = excluded.operating_hours,
-  is_active = excluded.is_active;
+  is_active = excluded.is_active,
+  geofence_on = excluded.geofence_on,
+  code = excluded.code;
