@@ -325,9 +325,6 @@ export class ParcelDraftsRepository {
           sender_phone,
           receiver_name,
           receiver_phone,
-          created_at,
-          updated_at,
-          tracking_progress_label,
           assigned_driver_id,
           parcel_draft_items (
             id,
@@ -340,7 +337,7 @@ export class ParcelDraftsRepository {
       )
       .eq("user_id", userId)
       .in("status", ["submitted", "cancelled", "delivered"])
-      .order("created_at", { ascending: false });
+      .order("id", { ascending: false });
   }
 
   async findOwnedHistoryByTrackingNumber(userId: string, trackingNumber: string) {
@@ -359,9 +356,6 @@ export class ParcelDraftsRepository {
           sender_phone,
           receiver_name,
           receiver_phone,
-          created_at,
-          updated_at,
-          tracking_progress_label,
           assigned_driver_id,
           parcel_draft_items (
             id,

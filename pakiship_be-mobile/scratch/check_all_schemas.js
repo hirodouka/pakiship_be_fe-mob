@@ -7,18 +7,25 @@ const serviceClient = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function inspect() {
+async function checkSchema(schemaName) {
   const { data, error } = await serviceClient
-    .schema('parcel')
+    .schema(schemaName)
     .from('drop_off_points')
-    .select('*');
+    .select('*')
+    .limit(1);
 
   if (error) {
-    console.error('Error fetching hubs:', error);
+    console.log(`Schema [${schemaName}] error:`, error.message);
   } else {
-    console.log('--- Hubs List ---');
-    console.log(JSON.stringify(data, null, 2));
+    console.log(`Schema [${schemaName}] SUCCESS:`, data);
   }
 }
 
-inspect();
+async function run() {
+  await checkSchema('parcel');
+  await checkSchema('account');
+  await checkSchema('public');
+  await checkSchema('routing');
+}
+
+run();

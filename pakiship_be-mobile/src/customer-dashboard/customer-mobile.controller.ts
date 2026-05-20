@@ -45,8 +45,8 @@ export class CustomerMobileController {
     return this.customerProfileService.uploadProfilePicture(getSessionUser(request), file);
   }
 
-  @Get("active-deliveries")
-  getActiveDeliveries(@Req() request: Request) {
+  @Get("history")
+  getHistory(@Req() request: Request) {
     return this.parcelDraftsService.getHistory(getSessionUser(request));
   }
 }

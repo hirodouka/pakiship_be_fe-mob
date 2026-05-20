@@ -107,17 +107,17 @@ export class CustomerFeedbackService {
     const admin = this.supabaseService.createAdminClient();
     const { data, error } = await admin
       .schema("parcel")
-      .from("parcel_service_selections")
-      .select("hub_id")
-      .eq("parcel_draft_id", draftId)
+      .from("parcel_drafts")
+      .select("drop_off_point_id")
+      .eq("id", draftId)
       .limit(1)
-      .maybeSingle<ServiceSelectionRow>();
+      .maybeSingle<{ drop_off_point_id: string | null }>();
 
     if (error) {
       throw new InternalServerErrorException("Unable to resolve the selected hub for this parcel.");
     }
 
-    return data?.hub_id ?? null;
+    return data?.drop_off_point_id ?? null;
   }
 
   private async findExistingFeedback(draftId: string, userId: string) {

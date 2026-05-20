@@ -10,13 +10,14 @@ const serviceClient = createClient(
 async function inspect() {
   const { data, error } = await serviceClient
     .schema('parcel')
-    .from('drop_off_points')
-    .select('*');
+    .from('parcel_drafts')
+    .select('*')
+    .limit(1);
 
   if (error) {
-    console.error('Error fetching hubs:', error);
+    console.error('Error fetching parcel drafts:', error);
   } else {
-    console.log('--- Hubs List ---');
+    console.log('--- Parcel Drafts Row ---');
     console.log(JSON.stringify(data, null, 2));
   }
 }

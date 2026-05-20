@@ -325,9 +325,9 @@ export class OperatorDashboardService {
         .lt("received_at", dayEnd.toISOString()),
 
       // All bookings assigned to this hub (for incoming count)
-      admin.schema("parcel").from("parcel_service_selections")
-        .select("parcel_draft_id")
-        .eq("hub_id", hubId),
+      admin.schema("parcel").from("parcel_drafts")
+        .select("id")
+        .eq("drop_off_point_id", hubId),
 
       // Draft IDs already in hub records (already received)
       admin.schema("parcel").from("parcel_hub_records")
@@ -355,7 +355,7 @@ export class OperatorDashboardService {
         .filter(Boolean)
     );
     const trueIncomingCount = (allSelectionsResult.data ?? [])
-      .filter((s) => !receivedDraftIds.has(s.parcel_draft_id)).length;
+      .filter((s: any) => !receivedDraftIds.has(s.id)).length;
 
     const uniqueCustomers = new Set(
       (customersResult.data ?? [])
@@ -404,9 +404,8 @@ export class OperatorDashboardService {
     // Direct match on drop_off_point_id
     if (draftDropOffPointId === hubId) return true;
 
-    const admin = this.supabaseService.createAdminClient();
-
     // Look up the hub's name/slug so we can match even if the customer stored a slug
+    const admin = this.supabaseService.createAdminClient();
     const { data: hubRow } = await admin
       .schema("routing")
       .from("operator_hubs")
@@ -414,58 +413,13 @@ export class OperatorDashboardService {
       .eq("id", hubId)
       .maybeSingle();
 
-    // Check parcel_service_selections by UUID hub_id
-    const { data: byUuid } = await admin
-      .schema("parcel")
-      .from("parcel_service_selections")
-      .select("parcel_draft_id")
-      .eq("parcel_draft_id", draftId)
-      .eq("hub_id", hubId)
-      .maybeSingle();
-
-    if (byUuid) return true;
-
-    // Also check if the draft's drop_off_point_id matches the hub UUID (already done above)
-    // or if the parcel_service_selections row has any hub_id that resolves to this hub
     if (hubRow) {
-      // Try matching by hub name slug (some bookings store name-based IDs)
       const slugId = hubRow.name
         ?.toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
 
       if (slugId && draftDropOffPointId === slugId) return true;
-
-      const { data: bySlug } = await admin
-        .schema("parcel")
-        .from("parcel_service_selections")
-        .select("parcel_draft_id")
-        .eq("parcel_draft_id", draftId)
-        .eq("hub_id", slugId ?? "")
-        .maybeSingle();
-
-      if (bySlug) return true;
-    }
-
-    // Last resort: the draft is assigned to this hub's drop_off_point_id at all
-    // (parcel_service_selections may store the hub UUID under a different column)
-    const { data: anySelection } = await admin
-      .schema("parcel")
-      .from("parcel_service_selections")
-      .select("hub_id")
-      .eq("parcel_draft_id", draftId)
-      .maybeSingle();
-
-    if (anySelection?.hub_id) {
-      // Resolve the stored hub_id to a UUID and compare
-      const { data: resolvedHub } = await admin
-        .schema("routing")
-        .from("operator_hubs")
-        .select("id")
-        .or(`id.eq.${anySelection.hub_id},name.ilike.${anySelection.hub_id}`)
-        .maybeSingle();
-
-      if (resolvedHub?.id === hubId) return true;
     }
 
     return false;
@@ -497,20 +451,20 @@ export class OperatorDashboardService {
     const hubRows = await this.listHubParcelRows(hubId);
     const receivedParcelIds = new Set(hubRows.map(r => getDraftRelation(r.parcel_drafts)?.id).filter(Boolean));
 
-    // 2. Get incoming parcels from service selections. hub_id is text here, so it supports slug hub ids.
+    // 2. Get incoming parcels. 
     const { data: selections, error: selectionsError } = await admin
       .schema("parcel")
-      .from("parcel_service_selections")
-      .select("parcel_draft_id")
-      .eq("hub_id", hubId);
+      .from("parcel_drafts")
+      .select("id")
+      .eq("drop_off_point_id", hubId);
 
     if (selectionsError) {
       console.error("[getParcels] failed to query pending service selections:", selectionsError.message);
     }
 
     const selectedDraftIds = (selections ?? [])
-      .map((selection) => selection.parcel_draft_id)
-      .filter((draftId): draftId is string => Boolean(draftId) && !receivedParcelIds.has(draftId));
+      .map((selection: any) => selection.id)
+      .filter((draftId: string | null): draftId is string => Boolean(draftId) && !receivedParcelIds.has(draftId));
 
     let drafts: any[] = [];
     if (selectedDraftIds.length > 0) {

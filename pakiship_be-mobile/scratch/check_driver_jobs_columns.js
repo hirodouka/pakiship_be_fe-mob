@@ -7,18 +7,18 @@ const serviceClient = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function inspect() {
+async function check() {
   const { data, error } = await serviceClient
-    .schema('parcel')
-    .from('drop_off_points')
-    .select('*');
+    .schema('driver')
+    .from('driver_jobs')
+    .select('*')
+    .limit(1);
 
   if (error) {
-    console.error('Error fetching hubs:', error);
+    console.error('Error:', error);
   } else {
-    console.log('--- Hubs List ---');
-    console.log(JSON.stringify(data, null, 2));
+    console.log('Driver Jobs columns and values:', data[0]);
   }
 }
 
-inspect();
+check();

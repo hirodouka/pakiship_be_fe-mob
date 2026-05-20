@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, forwardRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
 import { Package, HelpCircle, Bell, User, LogOut, Clock, ArrowRight, ChevronRight, Circle } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TutorialModal from '@/features/home/components/TutorialModal';
 import OnboardingModal from '@/features/home/components/OnboardingModal';
@@ -44,12 +44,28 @@ export default function App() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [deliveriesRes, notificationsRes] = await Promise.all([
+      const [deliveriesRes, notificationsRes, historyRes] = await Promise.all([
         apiRequest('/pakiship/mobile/customer/active-deliveries').catch(() => ({ deliveries: [] })),
         apiRequest('/pakiship/mobile/customer/notifications').catch(() => ({ notifications: [] })),
+        apiRequest('/pakiship/mobile/customer/history').catch(() => ({ transactions: [] })),
       ]);
 
-      const mapped = (deliveriesRes.deliveries || []).map((d: any) => {
+      const rawDeliveries = Array.isArray(deliveriesRes.deliveries)
+        ? deliveriesRes.deliveries
+        : Array.isArray(deliveriesRes.transactions)
+          ? deliveriesRes.transactions.filter((d: any) => d?.bucket === 'active' || d?.isLive)
+          : [];
+
+      const historyFallback = Array.isArray(historyRes.transactions)
+        ? historyRes.transactions.filter((d: any) => {
+            const status = String(d?.rawStatus || d?.status || '').toLowerCase();
+            return !['', 'draft', 'pending_payment', 'cancelled', 'lost'].includes(status);
+          }).slice(0, 5)
+        : [];
+
+      const sourceDeliveries = rawDeliveries.length > 0 ? rawDeliveries : historyFallback;
+
+      const mapped = sourceDeliveries.map((d: any) => {
         let shortStatus = d.status || 'In Transit';
         const s = String(shortStatus).trim().toUpperCase();
         if (s.includes('DISPATCHED FROM DROP-OFF') || s.includes('DISPATCHED')) {
@@ -65,7 +81,7 @@ export default function App() {
         }
 
         return {
-          id: d.trackingNumber,
+          id: d.trackingNumber || d.tracking_number || d.id,
           location: d.to,
           time: d.timeLabel || d.duration || 'Calculating...',
           status: shortStatus,
@@ -88,6 +104,12 @@ export default function App() {
     fetchData();
     checkFirstLaunch();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchData();
+    }, [])
+  );
 
   const checkFirstLaunch = async () => {
     try {

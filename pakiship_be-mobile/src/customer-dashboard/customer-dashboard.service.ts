@@ -72,6 +72,39 @@ function normalizeTags(input: unknown) {
     .slice(0, 10);
 }
 
+function isActiveDraftStatus(status: string | null | undefined) {
+  const normalized = asString(status).toLowerCase();
+  return !["", "draft", "pending_payment", "delivered", "cancelled", "lost"].includes(normalized);
+}
+
+function getActiveDeliveryLabel(item: {
+  status: string;
+  assigned_driver_id: string | null;
+}) {
+  const normalized = asString(item.status).toLowerCase();
+  if (normalized === "submitted") {
+    return item.assigned_driver_id ? "Confirmed" : "Finding Driver";
+  }
+
+  if (["accepted", "confirmed", "in-progress"].includes(normalized)) {
+    return "Preparing for Pickup";
+  }
+
+  if (
+    [
+      "picked-up",
+      "picked_up",
+      "out-for-delivery",
+      "out_for_delivery",
+      "in_transit",
+    ].includes(normalized)
+  ) {
+    return "In Transit";
+  }
+
+  return "In Transit";
+}
+
 @Injectable()
 export class CustomerDashboardService {
   constructor(
@@ -84,57 +117,37 @@ export class CustomerDashboardService {
 
     const search = asString(query.search).toLowerCase();
     const statusFilter = asString(query.status).toLowerCase();
-    let data:
-      | Array<{
-          id: string;
-          tracking_number: string | null;
-          pickup_address: string | null;
-          delivery_address: string | null;
-          status: string;
-          updated_at: string | null;
-          tracking_progress_label: string | null;
-          assigned_driver_id: string | null;
-        }>
-      | null = null;
+    const admin = this.supabaseService.createAdminClient();
+    const { data, error } = await admin
+      .schema("parcel")
+      .from("parcel_drafts")
+      .select("id, tracking_number, pickup_address, delivery_address, status, assigned_driver_id")
+      .eq("user_id", session.userId)
+      .in("status", ["submitted", "accepted", "confirmed", "in-progress", "picked-up", "picked_up", "out-for-delivery", "out_for_delivery", "in_transit"])
+      .order("id", { ascending: false })
+      .limit(20);
 
-    try {
-      const admin = this.supabaseService.createAdminClient();
-      const result = await admin
-        .schema("parcel")
-        .from("parcel_drafts")
-        .select("id, tracking_number, pickup_address, delivery_address, status, updated_at, tracking_progress_label, assigned_driver_id")
-        .eq("user_id", session.userId)
-        .in("status", ["submitted", "delivered"]) // Only allowed DB statuses
-        .order("updated_at", { ascending: false })
-        .limit(100);
-
-      if (result.error) {
-        console.error("[customer-dashboard] active deliveries query failed:", result.error.message);
-      } else {
-        data = result.data;
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      console.error("[customer-dashboard] active deliveries failed:", message);
+    if (error) {
+      console.error("[customer-dashboard] active deliveries query failed:", error);
+      throw new InternalServerErrorException("Unable to load active deliveries right now.");
     }
 
-    const deliveries = (data ?? []).map((item) => ({
-      id: item.tracking_number || item.id,
-      trackingNumber: item.tracking_number || item.id,
-      from: item.pickup_address || "Unknown origin",
-      to: item.delivery_address || "Unknown destination",
-      status: item.tracking_progress_label || (
-        item.status === "submitted" 
-          ? (item.assigned_driver_id ? "Confirmed" : "Finding Driver")
-          : item.status === "delivered"
-            ? "Delivered"
-            : "In Transit"
-      ),
-      isLive: item.status !== "submitted",
-      rawStatus: item.status,
-      updatedAt: item.updated_at,
-      timeLabel: formatRelativeTime(item.updated_at),
-    }));
+    const deliveries = (data ?? [])
+      .filter((item) => isActiveDraftStatus(item.status))
+      .map((item) => ({
+        id: item.tracking_number || item.id,
+        trackingNumber: item.tracking_number || item.id,
+        from: item.pickup_address || "Unknown origin",
+        to: item.delivery_address || "Unknown destination",
+        status: getActiveDeliveryLabel({
+          status: item.status,
+          assigned_driver_id: item.assigned_driver_id,
+        }),
+        isLive: true,
+        rawStatus: item.status,
+        updatedAt: null,
+        timeLabel: "Just now",
+      }));
 
     const filtered = deliveries.filter((item) => {
       const normalizedStatus = item.status.toLowerCase().replace(/\s+/g, "");

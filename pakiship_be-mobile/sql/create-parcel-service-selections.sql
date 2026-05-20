@@ -1,5 +1,5 @@
 create table if not exists public.parcel_service_selections (
-  parcel_draft_id uuid primary key references public.parcel_drafts(id) on delete cascade,
+  parcel_draft_id uuid unique not null,
   service_id text not null,
   service_price numeric not null,
   hub_id text,

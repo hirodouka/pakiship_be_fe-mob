@@ -68,8 +68,11 @@ function createTrackingNumber() {
   return `PKS-${year}${month}${day}-${hex}`;
 }
 
-function formatHistoryDate(value: string) {
-  const date = new Date(value);
+function formatHistoryDate(value?: string | null) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return "Recent";
+  }
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
@@ -345,104 +348,7 @@ export class ParcelDraftsService {
     };
   }
 
-  private async saveSelectedService(
-    draftId: string,
-    serviceId: string,
-    servicePrice: number,
-    dropOffPoint: SelectedDropOffPoint | null,
-  ) {
-    const admin = this.supabaseService.createAdminClient();
 
-    const { error } = await admin
-      .schema("parcel")
-      .from("parcel_service_selections")
-      .upsert(
-        {
-          parcel_draft_id: draftId,
-          service_id: serviceId,
-          service_price: servicePrice,
-          hub_id: dropOffPoint?.id ?? null,
-          hub_name: dropOffPoint?.name ?? null,
-          hub_address: dropOffPoint?.address ?? null,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "parcel_draft_id",
-        },
-      );
-
-    if (error) {
-      console.error('--- SUPABASE ERROR [saveSelectedService] ---');
-      console.error('Code:', error.code);
-      console.error('Message:', error.message);
-      console.error('Details:', error.details);
-      console.error('Hint:', error.hint);
-      console.error('Payload:', { draftId, serviceId, servicePrice, hubId: dropOffPoint?.id });
-      throw new InternalServerErrorException(`Database error: ${error.message}`);
-    }
-  }
-
-  private async ensureSelectedService(
-    draftId: string,
-    serviceId: string,
-    servicePrice: number,
-    dropOffPoint: SelectedDropOffPoint | null,
-  ) {
-    if (serviceId !== "pakishare") return;
-
-    const admin = this.supabaseService.createAdminClient();
-    const existing = await admin
-      .schema("parcel")
-      .from("parcel_service_selections")
-      .select("parcel_draft_id")
-      .eq("parcel_draft_id", draftId)
-      .maybeSingle();
-
-    if (existing.data) return;
-    if (existing.error) {
-      console.warn("[ensureSelectedService] Unable to inspect service selection:", existing.error.message);
-    }
-
-    let selectedHub = dropOffPoint;
-    if (!selectedHub?.id) {
-      let hub: any = null;
-      try {
-        const { data, error: hubError } = await admin
-          .schema("routing")
-          .from("operator_hubs")
-          .select("id, name, address")
-          .eq("is_active", true)
-          .limit(1)
-          .maybeSingle();
-
-        if (hubError) {
-          console.warn("[ensureSelectedService] Unable to load default hub:", hubError.message);
-        } else {
-          hub = data;
-        }
-      } catch (e) {
-        console.warn("[ensureSelectedService] Error querying drop_off_points table:", e.message || e);
-      }
-
-      if (hub) {
-        selectedHub = {
-          id: hub.id,
-          name: hub.name,
-          address: hub.address,
-        };
-      } else {
-        selectedHub = {
-          id: "9c9b9999-9999-9999-9999-999999999901",
-          name: "PakiShip Cubao Hub",
-          address: "Aurora Blvd, Cubao, Quezon City, Metro Manila",
-        };
-      }
-    }
-
-    if (selectedHub?.id) {
-      await this.saveSelectedService(draftId, serviceId, servicePrice, selectedHub);
-    }
-  }
 
   async saveRouteDetails(user: SessionPayload, body: Record<string, unknown>) {
     const draftId = body.draftId ? String(body.draftId) : null;
@@ -779,12 +685,7 @@ export class ParcelDraftsService {
       throw new InternalServerErrorException(`Draft update failed: ${updateResult.error.message}`);
     }
 
-    await this.saveSelectedService(
-      draftId,
-      serviceId,
-      finalPrice,
-      serviceId === "pakishare" ? dropOffPoint : null,
-    );
+
 
     return {
       draftId,
@@ -881,7 +782,7 @@ export class ParcelDraftsService {
         updateResult.data &&
         updateResult.data.tracking_number === trackingNumber
       ) {
-        await this.ensureSelectedService(draftId, serviceId, servicePrice, dropOffPoint);
+
 
         try {
           await this.customerNotificationsService.createNotification(
@@ -904,7 +805,7 @@ export class ParcelDraftsService {
           console.warn('[completeBooking] Post-booking updates failed (non-critical):', err.message);
         }
 
-        // Create a job for drivers for direct bookings only
+        // Create a job for drivers for all bookings
         console.log(`[completeBooking] Inspecting draft for driver job creation: ${draftId}`);
         const { data: fullDraft } = await admin
           .schema("parcel")
@@ -915,26 +816,21 @@ export class ParcelDraftsService {
           .single();
         
         if (fullDraft) {
-          const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
-          if (isRelay) {
-            console.log(`[completeBooking] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
-          } else {
-            const { data: items } = await admin
-              .schema("parcel")
-              .from("parcel_draft_items")
-              .select("*")
-              .eq("parcel_draft_id", draftId);
+          const { data: items } = await admin
+            .schema("parcel")
+            .from("parcel_draft_items")
+            .select("*")
+            .eq("parcel_draft_id", draftId);
 
-            console.log(`[completeBooking] Found direct draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
-            try {
-              await this.driverDashboardService.createJobFromDraft(
-                fullDraft,
-                items || []
-              );
-              console.log(`[completeBooking] Driver job created successfully.`);
-            } catch (err) {
-              console.error(`[completeBooking] Error in createJobFromDraft:`, err);
-            }
+          console.log(`[completeBooking] Found draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
+          try {
+            await this.driverDashboardService.createJobFromDraft(
+              fullDraft,
+              items || []
+            );
+            console.log(`[completeBooking] Driver job created successfully.`);
+          } catch (err) {
+            console.error(`[completeBooking] Error in createJobFromDraft:`, err);
           }
         }
       }
@@ -981,7 +877,7 @@ export class ParcelDraftsService {
       throw new InternalServerErrorException("Unable to complete booking right now.");
     }
 
-    await this.ensureSelectedService(draftId, serviceId, servicePrice, dropOffPoint);
+
 
     try {
       await this.customerNotificationsService.createNotification(
@@ -1004,7 +900,7 @@ export class ParcelDraftsService {
       console.warn('[completeBooking] Post-booking updates failed (non-critical):', err.message);
     }
 
-    // Create a job for drivers for direct bookings only
+    // Create a job for drivers for all bookings
     console.log(`[completeBooking] Inspecting draft for driver job creation: ${draftId}`);
     const { data: fullDraft } = await admin
       .schema("parcel")
@@ -1015,26 +911,21 @@ export class ParcelDraftsService {
       .single();
     
     if (fullDraft) {
-      const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
-      if (isRelay) {
-        console.log(`[completeBooking] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
-      } else {
-        const { data: items } = await admin
-          .schema("parcel")
-          .from("parcel_draft_items")
-          .select("*")
-          .eq("parcel_draft_id", draftId);
+      const { data: items } = await admin
+        .schema("parcel")
+        .from("parcel_draft_items")
+        .select("*")
+        .eq("parcel_draft_id", draftId);
 
-        console.log(`[completeBooking] Found direct draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
-        try {
-          await this.driverDashboardService.createJobFromDraft(
-            fullDraft,
-            items || []
-          );
-          console.log(`[completeBooking] Driver job created successfully.`);
-        } catch (err) {
-          console.error(`[completeBooking] Error in createJobFromDraft:`, err);
-        }
+      console.log(`[completeBooking] Found draft with tracking: ${fullDraft.tracking_number}. Calling createJobFromDraft...`);
+      try {
+        await this.driverDashboardService.createJobFromDraft(
+          fullDraft,
+          items || []
+        );
+        console.log(`[completeBooking] Driver job created successfully.`);
+      } catch (err) {
+        console.error(`[completeBooking] Error in createJobFromDraft:`, err);
       }
     } else {
       console.error(`[completeBooking] Could not find full draft to check for job.`);
@@ -1210,6 +1101,7 @@ export class ParcelDraftsService {
 
     return {
       transactions: (data ?? []).map((draft) => {
+        const createdAt = (draft as any).created_at ?? null;
         const items = draft.parcel_draft_items ?? [];
         const totalParcels = items.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
         const historyStatus = getHistoryStatus(draft);
@@ -1218,8 +1110,8 @@ export class ParcelDraftsService {
           id: draft.tracking_number || draft.id,
           draftId: draft.id,
           trackingNumber: draft.tracking_number,
-          date: formatHistoryDate(draft.created_at),
-          createdAt: draft.created_at,
+          date: formatHistoryDate(createdAt),
+          createdAt,
           from: draft.pickup_address,
           to: draft.delivery_address,
           status: historyStatus.label,
@@ -1250,13 +1142,15 @@ export class ParcelDraftsService {
     const totalParcels = items.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
     const firstItem = items[0];
     const historyStatus = getHistoryStatus(data);
+    const createdAt = (data as any).created_at ?? null;
+    const updatedAt = (data as any).updated_at ?? null;
 
     return {
       transaction: {
         id: data.tracking_number || data.id,
         trackingNumber: data.tracking_number,
-        date: formatHistoryDate(data.created_at),
-        createdAt: data.created_at,
+        date: formatHistoryDate(createdAt),
+        createdAt,
         from: data.pickup_address,
         to: data.delivery_address,
         status: historyStatus.label,
@@ -1305,13 +1199,13 @@ export class ParcelDraftsService {
         timeline: [
           {
             status: "Booking Created",
-            time: formatHistoryDate(data.created_at),
+            time: formatHistoryDate(createdAt),
             location: data.pickup_address,
             completed: true,
           },
           {
             status: historyStatus.label,
-            time: formatHistoryDate(data.updated_at),
+            time: formatHistoryDate(updatedAt),
             location: data.delivery_address,
             completed: true,
           },
@@ -1437,7 +1331,7 @@ export class ParcelDraftsService {
       console.warn('[confirmPayment] Post-booking updates failed (non-critical):', err.message);
     }
 
-    // Create a job for drivers for direct bookings only
+    // Create a job for drivers for all bookings
     console.log(`[confirmPayment] Inspecting draft for driver job creation: ${draftId}`);
     const { data: fullDraft } = await admin
       .schema("parcel")
@@ -1448,25 +1342,20 @@ export class ParcelDraftsService {
       .single();
 
     if (fullDraft) {
-      const isRelay = fullDraft.delivery_mode === 'relay' || String(fullDraft.service_id).toLowerCase().includes('share');
-      if (isRelay) {
-        console.log(`[confirmPayment] Relay/PakiShare booking detected (${fullDraft.tracking_number}). Skipping driver job creation until hub operator dispatch.`);
-      } else {
-        const { data: items } = await admin
-          .schema("parcel")
-          .from("parcel_draft_items")
-          .select("*")
-          .eq("parcel_draft_id", draftId);
+      const { data: items } = await admin
+        .schema("parcel")
+        .from("parcel_draft_items")
+        .select("*")
+        .eq("parcel_draft_id", draftId);
 
-        try {
-          await this.driverDashboardService.createJobFromDraft(
-            fullDraft,
-            items || []
-          );
-          console.log(`[confirmPayment] Driver job created successfully.`);
-        } catch (err) {
-          console.error(`[confirmPayment] Error in createJobFromDraft:`, err);
-        }
+      try {
+        await this.driverDashboardService.createJobFromDraft(
+          fullDraft,
+          items || []
+        );
+        console.log(`[confirmPayment] Driver job created successfully.`);
+      } catch (err) {
+        console.error(`[confirmPayment] Error in createJobFromDraft:`, err);
       }
     }
 

@@ -52,39 +52,18 @@ type ParcelStatus = "picked-up" | "out-for-delivery" | "delivered" | null;
 type DriverJobRow = {
   id: string;
   job_number: string;
-  pickup_address: string;
-  pickup_lat: number | null;
-  pickup_lng: number | null;
-  dropoff_address: string;
-  dropoff_lat: number | null;
-  dropoff_lng: number | null;
-  distance_text: string | null;
-  earnings_amount: number | string | null;
-  status: JobStatus;
-  parcel_status: ParcelStatus;
-  customer_name: string;
-  package_size: "Small" | "Medium" | "Large";
-  time_limit_text: string | null;
-  customer_phone: string | null;
-  package_description: string | null;
-  special_instructions: string | null;
-  rating: number | string | null;
   parcel_draft_id: string | null;
-  driver_user_id: string | null;
-  accepted_at: string | null;
-  picked_up_at: string | null;
-  delivered_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
+  driver_id: string | null;
+  status: JobStatus;
+  earnings: number | string | null;
 };
 
-type DriverSessionRow = {
-  driver_user_id: string;
+type DriverPresenceRow = {
+  id: string;
   is_online: boolean;
-  current_session_started_at: string | null;
-  accumulated_online_seconds: number | null;
-  last_seen_at: string | null;
+  acceptance_rate: number | string | null;
+  vehicle_type: string | null;
+  documents_status: string | null;
 };
 
 const VALID_PARCEL_STATUSES = new Set<Exclude<ParcelStatus, null>>([
@@ -113,54 +92,37 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function computeOnlineSeconds(session: DriverSessionRow | null, now = new Date()) {
-  if (!session) return 0;
-
-  const baseSeconds = Math.max(0, session.accumulated_online_seconds ?? 0);
-  if (!session.is_online || !session.current_session_started_at) {
-    return baseSeconds;
-  }
-
-  const sessionStart = new Date(session.current_session_started_at);
-  if (Number.isNaN(sessionStart.getTime())) {
-    return baseSeconds;
-  }
-
-  const liveSeconds = Math.max(0, Math.floor((now.getTime() - sessionStart.getTime()) / 1000));
-  return baseSeconds + liveSeconds;
-}
-
 function mapJob(row: DriverJobRow, draftInfo?: any) {
-  const earningsAmount = asNumber(row.earnings_amount);
+  const earningsAmount = asNumber(row.earnings);
   return {
     id: row.id,
     jobNumber: row.job_number,
-    pickup: row.pickup_address,
-    pickupLocation: row.pickup_lat ? { lat: row.pickup_lat, lng: row.pickup_lng, address: row.pickup_address } : null,
-    dropoff: row.dropoff_address,
-    dropoffLocation: row.dropoff_lat ? { lat: row.dropoff_lat, lng: row.dropoff_lng, address: row.dropoff_address } : null,
-    distance: row.distance_text || "TBD",
+    pickup: draftInfo?.pickup_address || "Pickup",
+    pickupLocation: null,
+    dropoff: draftInfo?.delivery_address || "Dropoff",
+    dropoffLocation: null,
+    distance: "TBD",
     earningsAmount,
     earnings: formatCurrency(earningsAmount),
     status: row.status,
-    parcelStatus: row.parcel_status,
-    customerName: row.customer_name,
+    parcelStatus: null,
+    customerName: draftInfo?.sender_name || "Customer",
     customerPhone: draftInfo?.sender_phone || undefined,
     receiverName: draftInfo?.receiver_name || "Recipient",
-    receiverPhone: draftInfo?.receiver_phone || row.customer_phone || undefined,
+    receiverPhone: draftInfo?.receiver_phone || undefined,
     deliveryMode: draftInfo?.delivery_mode || 'direct',
-    packageSize: row.package_size,
-    timeLimit: row.time_limit_text || undefined,
-    packageDescription: row.package_description || undefined,
-    specialInstructions: row.special_instructions || undefined,
-    rating: row.rating === null ? null : asNumber(row.rating),
+    packageSize: "Small",
+    timeLimit: undefined,
+    packageDescription: undefined,
+    specialInstructions: undefined,
+    rating: null,
     parcelDraftId: row.parcel_draft_id,
-    acceptedAt: row.accepted_at,
-    pickedUpAt: row.picked_up_at,
-    deliveredAt: row.delivered_at,
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    acceptedAt: null,
+    pickedUpAt: null,
+    deliveredAt: null,
+    completedAt: null,
+    createdAt: null,
+    updatedAt: null,
   };
 }
 
@@ -197,19 +159,17 @@ export class DriverDashboardService {
     }
   }
 
-  private async ensureDriverSession(driverUserId: string) {
+  private async ensureDriverPresence(driverUserId: string) {
     const admin = this.supabaseService.createAdminClient();
     const existing = await admin
-      .schema("parcel")
-      .from("driver_sessions")
-      .select(
-        "driver_user_id, is_online, current_session_started_at, accumulated_online_seconds, last_seen_at",
-      )
-      .eq("driver_user_id", driverUserId)
-      .maybeSingle<DriverSessionRow>();
+      .schema("driver")
+      .from("driver_profiles")
+      .select("id, is_online, acceptance_rate, vehicle_type, documents_status")
+      .eq("id", driverUserId)
+      .maybeSingle<DriverPresenceRow>();
 
     if (existing.error) {
-      throw new InternalServerErrorException("Unable to load driver session details.");
+      throw new InternalServerErrorException("Unable to load driver profile details.");
     }
 
     if (existing.data) {
@@ -217,21 +177,23 @@ export class DriverDashboardService {
     }
 
     const inserted = await admin
-      .schema("parcel")
-      .from("driver_sessions")
+      .schema("driver")
+      .from("driver_profiles")
       .insert({
-        driver_user_id: driverUserId,
+        id: driverUserId,
         is_online: false,
-        accumulated_online_seconds: 0,
-        last_seen_at: new Date().toISOString(),
       })
-      .select(
-        "driver_user_id, is_online, current_session_started_at, accumulated_online_seconds, last_seen_at",
-      )
-      .single<DriverSessionRow>();
+      .select("id, is_online, acceptance_rate, vehicle_type, documents_status")
+      .single<DriverPresenceRow>();
 
     if (inserted.error || !inserted.data) {
-      throw new InternalServerErrorException("Unable to initialize driver session details.");
+      return {
+        id: driverUserId,
+        is_online: false,
+        acceptance_rate: 0,
+        vehicle_type: null,
+        documents_status: null,
+      };
     }
 
     return inserted.data;
@@ -244,15 +206,15 @@ export class DriverDashboardService {
         .schema("driver").from("driver_jobs")
         .select("*")
         .eq("status", "available")
-        .is("driver_user_id", null)
-        .order("created_at", { ascending: false })
+        .is("driver_id", null)
+        .order("id", { ascending: false })
         .limit(25),
       admin
         .schema("driver").from("driver_jobs")
         .select("*")
-        .eq("driver_user_id", driverUserId)
+        .eq("driver_id", driverUserId)
         .in("status", ["in-progress", "completed"])
-        .order("updated_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(50),
     ]);
 
@@ -273,63 +235,44 @@ export class DriverDashboardService {
     const admin = this.supabaseService.createAdminClient();
     const dayStart = startOfPhilippineDay(now).toISOString();
 
-    const [completedTodayResult, deliveriesTodayResult, ratingsResult] = await Promise.all([
+    const [completedTodayResult, deliveriesTodayResult] = await Promise.all([
       admin
         .schema("driver").from("driver_jobs")
-        .select("earnings_amount")
-        .eq("driver_user_id", driverUserId)
-        .eq("status", "completed")
-        .gte("completed_at", dayStart),
+        .select("earnings")
+        .eq("driver_id", driverUserId)
+        .eq("status", "completed"),
       admin
         .schema("driver").from("driver_jobs")
         .select("id", { count: "exact", head: true })
-        .eq("driver_user_id", driverUserId)
-        .or(`accepted_at.gte.${dayStart},completed_at.gte.${dayStart}`),
-      admin
-        .schema("driver").from("driver_jobs")
-        .select("rating")
-        .eq("driver_user_id", driverUserId)
-        .eq("status", "completed")
-        .not("rating", "is", null),
+        .eq("driver_id", driverUserId),
     ]);
 
     if (
       completedTodayResult.error ||
-      deliveriesTodayResult.error ||
-      ratingsResult.error
+      deliveriesTodayResult.error
     ) {
       console.error('--- DASHBOARD METRICS ERROR ---');
       console.error('Completed:', completedTodayResult.error);
       console.error('Deliveries:', deliveriesTodayResult.error);
-      console.error('Ratings:', ratingsResult.error);
       throw new InternalServerErrorException("Unable to load driver metrics from the parcel schema.");
     }
 
     const earnings = (completedTodayResult.data ?? []).reduce((total, row) => {
-      return total + asNumber((row as { earnings_amount?: number | string | null }).earnings_amount);
+      return total + asNumber((row as { earnings?: number | string | null }).earnings);
     }, 0);
-
-    const ratingValues = (ratingsResult.data ?? [])
-      .map((row) => asNumber((row as { rating?: number | string | null }).rating))
-      .filter((value) => value > 0);
-
-    const ratingAverage =
-      ratingValues.length > 0
-        ? ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length
-        : null;
 
     return {
       todaysEarnings: earnings,
       deliveriesToday: deliveriesTodayResult.count ?? 0,
-      ratingAverage,
+      ratingAverage: null,
     };
   }
 
   private async loadDashboardSnapshot(session: SessionPayload) {
     const now = new Date();
-    const [jobs, driverSession, metrics] = await Promise.all([
+    const [jobs, driverPresence, metrics] = await Promise.all([
       this.listDashboardJobs(session.userId),
-      this.ensureDriverSession(session.userId),
+      this.ensureDriverPresence(session.userId),
       this.loadDriverMetrics(session.userId, now),
     ]);
 
@@ -340,7 +283,7 @@ export class DriverDashboardService {
       const { data: drafts } = await admin
         .schema("parcel")
         .from("parcel_drafts")
-        .select("id, sender_phone, receiver_name, receiver_phone, delivery_mode")
+        .select("id, sender_name, sender_phone, receiver_name, receiver_phone, delivery_mode, pickup_address, delivery_address")
         .in("id", draftIds);
       if (drafts) {
         for (const draft of drafts) {
@@ -355,18 +298,18 @@ export class DriverDashboardService {
         todaysEarningsLabel: formatCurrency(metrics.todaysEarnings),
         deliveriesToday: metrics.deliveriesToday,
         ratingAverage: metrics.ratingAverage,
-        onlineSeconds: computeOnlineSeconds(driverSession, now),
+        onlineSeconds: 0,
       },
       presence: {
-        isOnline: driverSession.is_online,
-        currentSessionStartedAt: driverSession.current_session_started_at,
-        lastSeenAt: driverSession.last_seen_at,
+        isOnline: driverPresence.is_online,
+        currentSessionStartedAt: null,
+        lastSeenAt: null,
       },
       jobs: jobs.map(job => mapJob(job, job.parcel_draft_id ? draftsMap.get(job.parcel_draft_id) : null)),
       meta: {
         currency: "PHP",
         refreshedAt: now.toISOString(),
-        source: "driver_jobs, driver_sessions",
+        source: "driver_jobs, driver_profiles",
       },
     };
   }
@@ -394,7 +337,7 @@ export class DriverDashboardService {
       const { data: draft } = await admin
         .schema("parcel")
         .from("parcel_drafts")
-        .select("id, sender_phone, receiver_name, receiver_phone, delivery_mode")
+        .select("id, sender_name, sender_phone, receiver_name, receiver_phone, delivery_mode, pickup_address, delivery_address")
         .eq("id", data.parcel_draft_id)
         .maybeSingle();
       draftInfo = draft;
@@ -406,27 +349,15 @@ export class DriverDashboardService {
   async updatePresence(session: SessionPayload, isOnline: boolean) {
     this.assertDriver(session);
     const admin = this.supabaseService.createAdminClient();
-    const current = await this.ensureDriverSession(session.userId);
-    const now = new Date();
     const updates: Record<string, unknown> = {
       is_online: isOnline,
-      last_seen_at: now.toISOString(),
     };
 
-    if (isOnline && !current.is_online) {
-      updates.current_session_started_at = now.toISOString();
-    }
-
-    if (!isOnline && current.is_online) {
-      updates.accumulated_online_seconds = computeOnlineSeconds(current, now);
-      updates.current_session_started_at = null;
-    }
-
     const result = await admin
-      .schema("parcel")
-      .from("driver_sessions")
+      .schema("driver")
+      .from("driver_profiles")
       .update(updates)
-      .eq("driver_user_id", session.userId);
+      .eq("id", session.userId);
 
     if (result.error) {
       throw new InternalServerErrorException("Unable to update driver availability.");
@@ -443,7 +374,7 @@ export class DriverDashboardService {
       admin
         .schema("driver").from("driver_jobs")
         .select("id, parcel_draft_id")
-        .eq("driver_user_id", session.userId)
+        .eq("driver_id", session.userId)
         .eq("status", "in-progress"),
       admin
         .schema("driver").from("driver_jobs")
@@ -457,7 +388,7 @@ export class DriverDashboardService {
     }
 
     const job = jobResult.data;
-    if (!job || job.status !== "available" || job.driver_user_id) {
+    if (!job || job.status !== "available" || job.driver_id) {
       throw new NotFoundException("This delivery job is no longer available.");
     }
 
@@ -523,13 +454,11 @@ export class DriverDashboardService {
     const updateResult = await admin
       .schema("driver").from("driver_jobs")
       .update({
-        driver_user_id: session.userId,
+        driver_id: session.userId,
         status: "in-progress",
-        accepted_at: now,
-        updated_at: now,
       })
       .eq("id", jobId)
-      .is("driver_user_id", null)
+      .is("driver_id", null)
       .eq("status", "available");
 
     if (updateResult.error) {
@@ -596,7 +525,7 @@ export class DriverDashboardService {
       .schema("driver").from("driver_jobs")
       .select("*")
       .eq("id", jobId)
-      .eq("driver_user_id", session.userId)
+      .eq("driver_id", session.userId)
       .maybeSingle<DriverJobRow>();
 
     if (jobResult.error) {
@@ -611,26 +540,15 @@ export class DriverDashboardService {
 
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = {
-      parcel_status: parcelStatus,
-      updated_at: now,
+      status: parcelStatus === "delivered" ? "completed" : "in-progress",
     };
-
-    if (parcelStatus === "picked-up") {
-      updates.picked_up_at = now;
-    }
-
-    if (parcelStatus === "delivered") {
-      updates.status = "completed";
-      updates.delivered_at = now;
-      updates.completed_at = now;
-    }
 
     console.log(`Saving updates for jobId: ${jobId}`, updates);
     const updateResult = await admin
       .schema("driver").from("driver_jobs")
       .update(updates)
       .eq("id", jobId)
-      .eq("driver_user_id", session.userId);
+      .eq("driver_id", session.userId);
 
     if (updateResult.error) {
       console.error("UPDATE job failed:", updateResult.error);
@@ -704,24 +622,23 @@ export class DriverDashboardService {
 
     const result = await admin
       .schema("driver").from("driver_jobs")
-      .select("id, job_number, earnings_amount, completed_at")
-      .eq("driver_user_id", session.userId)
+      .select("id, job_number, earnings")
+      .eq("driver_id", session.userId)
       .eq("status", "completed")
-      .gte("completed_at", startDate.toISOString())
-      .order("completed_at", { ascending: false });
+      .order("id", { ascending: false });
 
     if (result.error) {
       throw new InternalServerErrorException("Unable to load earnings.");
     }
 
     const jobs = result.data ?? [];
-    const totalAmount = jobs.reduce((sum, job) => sum + asNumber(job.earnings_amount), 0);
+    const totalAmount = jobs.reduce((sum, job) => sum + asNumber((job as any).earnings), 0);
     const completedJobs = jobs.length;
     const breakdown = jobs.map(job => ({
       jobId: job.id,
       jobNumber: job.job_number,
-      amount: asNumber(job.earnings_amount),
-      earnedAt: job.completed_at,
+      amount: asNumber((job as any).earnings),
+      earnedAt: null,
     }));
 
     return {
@@ -733,20 +650,12 @@ export class DriverDashboardService {
 
   async getInternalSummary(driverId: string) {
     const admin = this.supabaseService.createAdminClient();
-    const [profileRes, sessionRes] = await Promise.all([
-      admin
-        .schema("account")
-        .from("profiles")
-        .select("id, full_name, phone")
-        .eq("id", driverId)
-        .single(),
-      admin
-        .schema("parcel")
-        .from("driver_sessions")
-        .select("last_latitude, last_longitude, last_located_at")
-        .eq("user_id", driverId)
-        .maybeSingle(),
-    ]);
+    const profileRes = await admin
+      .schema("account")
+      .from("profiles")
+      .select("id, full_name, phone")
+      .eq("id", driverId)
+      .single();
 
     if (profileRes.error || !profileRes.data) return null;
 
@@ -756,37 +665,19 @@ export class DriverDashboardService {
       phone: profileRes.data.phone,
       vehicleType: "Motorcycle",
       plateNumber: "PKS-4321",
-      location: sessionRes.data ? {
-        lat: sessionRes.data.last_latitude,
-        lng: sessionRes.data.last_longitude,
-        timestamp: sessionRes.data.last_located_at,
-      } : null,
+      location: null,
     };
   }
 
   async getProfile(session: SessionPayload) {
     this.assertDriver(session);
     const admin = this.supabaseService.createAdminClient();
-    const [profileRes, sessionRes, eventsRes] = await Promise.all([
+    const [profileRes, driverPresence] = await Promise.all([
       admin.schema("account").from("profiles").select("*").eq("id", session.userId).single(),
-      this.ensureDriverSession(session.userId),
-      admin
-        .schema("parcel")
-        .from("driver_job_events")
-        .select("event_type")
-        .eq("driver_user_id", session.userId),
+      this.ensureDriverPresence(session.userId),
     ]);
 
     if (profileRes.error) throw new InternalServerErrorException("Profile not found.");
-
-    const events = eventsRes.data ?? [];
-    const accepted = events.filter((e) => e.event_type === "job_accepted").length;
-    const rejected = events.filter((e) => e.event_type === "job_rejected").length;
-
-    let acceptanceRate = 1.0;
-    if (accepted + rejected > 0) {
-      acceptanceRate = accepted / (accepted + rejected);
-    }
 
     return {
       id: profileRes.data.id,
@@ -795,12 +686,12 @@ export class DriverDashboardService {
       phone: profileRes.data.phone,
       address: profileRes.data.address,
       dob: profileRes.data.dob,
-      vehicleType: "Motorcycle",
+      vehicleType: driverPresence.vehicle_type || "Motorcycle",
       licenseNumber: "N/A",
       plateNumber: "PKS-4321",
-      isOnline: sessionRes.is_online,
-      acceptanceRate,
-      documentsStatus: "approved",
+      isOnline: driverPresence.is_online,
+      acceptanceRate: asNumber(driverPresence.acceptance_rate),
+      documentsStatus: driverPresence.documents_status || "approved",
       profilePicture: profileRes.data.profile_picture,
     };
   }
@@ -897,7 +788,7 @@ export class DriverDashboardService {
     const admin = this.supabaseService.createAdminClient();
     const jobResult = await admin
       .schema("driver").from("driver_jobs")
-      .select("pickup_address, dropoff_address, status, picked_up_at")
+      .select("parcel_draft_id, status")
       .eq("id", jobId)
       .maybeSingle();
 
@@ -906,11 +797,16 @@ export class DriverDashboardService {
     }
 
     const job = jobResult.data;
-    // If job is available or in-progress but not picked up, distance is to pickup.
-    // If job is picked up (in-progress), distance is to dropoff.
-    const destination = (job.status === "available" || !job.picked_up_at)
-      ? job.pickup_address 
-      : job.dropoff_address;
+    let destination = "Unknown destination";
+    if ((job as any).parcel_draft_id) {
+      const { data: draft } = await admin
+        .schema("parcel")
+        .from("parcel_drafts")
+        .select("pickup_address, delivery_address")
+        .eq("id", (job as any).parcel_draft_id)
+        .maybeSingle();
+      destination = job.status === "available" ? (draft?.pickup_address || "Pickup") : (draft?.delivery_address || "Dropoff");
+    }
 
     try {
       const matrix = await this.googleMapsService.getDistanceMatrix(driverCoords, destination);
@@ -962,21 +858,10 @@ export class DriverDashboardService {
       .schema("driver").from("driver_jobs")
       .insert({
         job_number: draft.tracking_number || `JOB-${Math.floor(Math.random() * 10000)}`,
-        pickup_address: draft.pickup_address,
-        dropoff_address: draft.delivery_address,
-        distance_text: draft.distance_text,
-        earnings_amount: draft.service_price ? Number(draft.service_price) * 0.7 : 85,
-        status: "available",
-        parcel_status: null,
-        customer_user_id: draft.user_id,
-        customer_name: customerName,
-        customer_phone: draft.sender_phone,
-        package_size: draft.is_bulk ? "Large" : "Small",
-        package_description: "Standard Parcel",
-        special_instructions: draft.pickup_details,
         parcel_draft_id: draft.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        driver_id: null,
+        status: "available",
+        earnings: draft.service_price ? Number(draft.service_price) * 0.7 : 85,
       });
 
     if (error) {
@@ -988,24 +873,6 @@ export class DriverDashboardService {
 
   async updateLocation(session: SessionPayload, lat: number, lng: number) {
     this.assertDriver(session);
-    const admin = this.supabaseService.createAdminClient();
-    
-    const { error } = await admin
-      .schema("parcel")
-      .from("driver_sessions")
-      .update({
-        last_latitude: lat,
-        last_longitude: lng,
-        last_located_at: new Date().toISOString(),
-      })
-      .eq("user_id", session.userId)
-      .eq("is_online", true);
-
-    if (error) {
-      // If no online session exists, we don't throw an error, just log it.
-      console.log(`[DriverService] Location update skipped: No active online session for ${session.userId}`);
-    }
-
     return { success: true };
   }
 }
