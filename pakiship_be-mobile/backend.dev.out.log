@@ -1,0 +1,4 @@
+
+> pakiship-backend@0.0.1 start:dev
+> ts-node --project tsconfig.json src/main.ts
+

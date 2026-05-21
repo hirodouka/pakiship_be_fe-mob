@@ -1,0 +1,19 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    "types": ["jest", "node"],
+    "paths": {
+      "@/*": ["src/*"],
+      "@app/*": ["src/app/*"],
+      "@config/*": ["src/lib/config/*"],
+      "@features/*": ["src/features/*"],
+      "@navigation/*": ["src/lib/navigation/*"],
+      "@theme/*": ["src/theme/*"],
+      "@utils/*": ["src/lib/utils/*"]
+    }
+  },
+  "include": ["App.tsx", "index.ts", "src", "tests"]
+}

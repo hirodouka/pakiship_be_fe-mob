@@ -1,0 +1,45 @@
+const tintColor = "#2BA99B";
+
+export default {
+  light: {
+    text: "#1A1A2E",
+    background: "#F0F6F5",
+    tint: tintColor,
+    tabIconDefault: "#9CA3AF",
+    tabIconSelected: tintColor,
+    cardBackground: "#FFFFFF",
+    subText: "#6B7280",
+    border: "#E5E7EB",
+    dangerRed: "#EF4444",
+    orange: "#F97316",
+    green: "#10B981",
+    incoming: "#3B82F6",
+    headerBg: "#FFFFFF",
+  },
+};
+
+export const COLORS = {
+  primary: "#2BA99B",
+  primaryDark: "#1E7A6E",
+  primaryLight: "#E0F2F0",
+  background: "#F0F6F5",
+  cardBg: "#FFFFFF",
+  text: "#1A1A2E",
+  textSecondary: "#6B7280",
+  textMuted: "#9CA3AF",
+  border: "#E5E7EB",
+  red: "#EF4444",
+  redLight: "#FEE2E2",
+  orange: "#F97316",
+  orangeLight: "#FFF7ED",
+  green: "#10B981",
+  greenLight: "#D1FAE5",
+  blue: "#3B82F6",
+  blueLight: "#DBEAFE",
+  purple: "#8B5CF6",
+  purpleLight: "#EDE9FE",
+  teal: "#2BA99B",
+  white: "#FFFFFF",
+  black: "#000000",
+  shadow: "rgba(0,0,0,0.08)",
+};

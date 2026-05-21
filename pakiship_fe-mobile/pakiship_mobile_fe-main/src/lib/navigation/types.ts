@@ -1,0 +1,44 @@
+export type RootStackParamList = {
+  RoleSelection: undefined;
+  Login: undefined;
+  Signup: { role: string };
+  OperatorReminder: undefined;
+  DriverReminder: undefined;
+  SignupStep2: {
+    role: string;
+    fullName: string;
+    firstName: string;
+    lastName: string;
+    dob: string;
+    mobile: string;
+    email: string;
+  };
+  SignupStep3: {
+    role: string;
+    fullName: string;
+    firstName: string;
+    lastName: string;
+    dob: string;
+    mobile: string;
+    email: string;
+    street: string;
+    city: string;
+    province: string;
+    password: string;
+  };
+  DriverHome: undefined;
+  JobDetails: { id: string };
+  UpdateStatus: { id: string };
+  DriverProfile: undefined;
+  Home: undefined;
+  EditProfile: undefined;
+  SendParcel: undefined;
+  TrackPackage: { trackingNumber?: string } | undefined;
+  History: undefined;
+  OperatorHome: undefined;
+  OperatorProfile: undefined;
+  ReceiveParcel: undefined;
+  ManualEntry: undefined;
+  QRScanner: undefined;
+  RateReview: undefined;
+};
