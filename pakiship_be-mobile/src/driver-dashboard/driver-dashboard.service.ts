@@ -518,13 +518,13 @@ export class DriverDashboardService {
 
     try {
       await admin
-        .schema("public")
-        .from("driver_job_events").insert({
-        job_id: jobId,
-        driver_user_id: session.userId,
-        event_type: "job_accepted",
-        payload: { status: "in-progress" },
-        created_at: now,
+        .schema("partner")
+        .from("activity_logs").insert({
+        admin_id: session.userId,
+        action: "job_accepted",
+        target_type: "driver_job",
+        target_id: jobId,
+        details: { status: "in-progress" },
       });
     } catch (err) {
       console.warn('[acceptJob] Event logging failed (non-blocking):', err.message);
@@ -540,19 +540,19 @@ export class DriverDashboardService {
     
     // Count job_accepted
     const { count: acceptedCount, error: acceptedError } = await admin
-      .schema("public")
-      .from("driver_job_events")
+      .schema("partner")
+      .from("activity_logs")
       .select("*", { count: "exact", head: true })
-      .eq("driver_user_id", driverUserId)
-      .eq("event_type", "job_accepted");
+      .eq("admin_id", driverUserId)
+      .eq("action", "job_accepted");
 
     // Count job_cancelled
     const { count: cancelledCount, error: cancelledError } = await admin
-      .schema("public")
-      .from("driver_job_events")
+      .schema("partner")
+      .from("activity_logs")
       .select("*", { count: "exact", head: true })
-      .eq("driver_user_id", driverUserId)
-      .eq("event_type", "job_cancelled");
+      .eq("admin_id", driverUserId)
+      .eq("action", "job_cancelled");
 
     if (acceptedError || cancelledError) {
       console.warn("Failed to recalculate acceptance rate:", acceptedError || cancelledError);
@@ -612,12 +612,12 @@ export class DriverDashboardService {
       status: "available"
     }).eq("id", jobId);
 
-    await admin.schema("public").from("driver_job_events").insert({
-      job_id: jobId,
-      driver_user_id: session.userId,
-      event_type: "job_cancelled",
-      payload: { reason: "Driver cancelled before pickup" },
-      created_at: new Date().toISOString()
+    await admin.schema("partner").from("activity_logs").insert({
+      admin_id: session.userId,
+      action: "job_cancelled",
+      target_type: "driver_job",
+      target_id: jobId,
+      details: { reason: "Driver cancelled before pickup" }
     });
 
     await this.recalculateAcceptanceRate(session.userId);
@@ -633,13 +633,13 @@ export class DriverDashboardService {
     const now = new Date().toISOString();
     try {
       await admin
-        .schema("public")
-        .from("driver_job_events").insert({
-        job_id: jobId,
-        driver_user_id: session.userId,
-        event_type: "job_rejected",
-        payload: { reason },
-        created_at: now,
+        .schema("partner")
+        .from("activity_logs").insert({
+        admin_id: session.userId,
+        action: "job_rejected",
+        target_type: "driver_job",
+        target_id: jobId,
+        details: { reason },
       });
     } catch (err) {
       console.warn('[rejectJob] Event logging failed (non-blocking):', err.message);
